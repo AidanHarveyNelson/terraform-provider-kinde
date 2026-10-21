@@ -42,7 +42,7 @@ func (m *ManagementAPI) requestJSON(ctx context.Context, method, path string, qu
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
