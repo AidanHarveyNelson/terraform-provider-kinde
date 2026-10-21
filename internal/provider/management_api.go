@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -129,6 +130,13 @@ func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error
 	return m.doJSON(ctx, http.MethodGet, path, nil, out)
 }
 
+func (m *ManagementAPI) requestJSON(ctx context.Context, method, path string, query url.Values, out any) error {
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return m.doJSON(ctx, method, path, nil, out)
+}
+
 func (m *ManagementAPI) doJSON(ctx context.Context, method, path string, payload, out any) error {
 	var body io.Reader
 	if payload != nil {
@@ -152,7 +160,7 @@ func (m *ManagementAPI) doJSON(ctx context.Context, method, path string, payload
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {

@@ -189,6 +189,7 @@ func TestAccIntegrationRoleManagement(t *testing.T) {
 					resource.TestCheckResourceAttr("kinde_permission.first", "name", testID+"-permission1"),
 					resource.TestCheckResourceAttr("kinde_permission.second", "name", testID+"-permission2"),
 					resource.TestCheckResourceAttr("kinde_role.complex", "permissions.#", "2"),
+					testAccCheckKindeRole("kinde_role.complex", testID+"-role", testID+"_role", "Complex test role", "kinde_permission.first", "kinde_permission.second"),
 					// Add a check to verify the role was created successfully
 					resource.TestCheckResourceAttrSet("kinde_role.complex", "id"),
 				),
@@ -208,6 +209,7 @@ func TestAccIntegrationRoleManagement(t *testing.T) {
 					resource.TestCheckResourceAttr("kinde_permission.second", "name", testID+"-permission2"),
 					resource.TestCheckResourceAttr("kinde_permission.third", "name", testID+"-permission3"),
 					resource.TestCheckResourceAttr("kinde_role.complex", "permissions.#", "2"),
+					testAccCheckKindeRole("kinde_role.complex", testID+"-role-updated", testID+"_role", "Updated complex test role", "kinde_permission.first", "kinde_permission.third"),
 				),
 			},
 		},
