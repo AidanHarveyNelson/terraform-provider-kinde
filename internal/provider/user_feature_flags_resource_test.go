@@ -125,9 +125,9 @@ func testAccUserFeatureFlagsImportID(keys string) resource.ImportStateIdFunc {
 	}
 }
 
-func testAccUserFeatureFlagsConfig(userID string, flags map[string]string) string {
+func testAccUserFeatureFlagsConfig(flags map[string]string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "resource \"kinde_user_feature_flags\" \"test\" {\n  user_id = %q\n  flags = {\n", userID)
+	b.WriteString("resource \"kinde_user_feature_flags\" \"test\" {\n  user_id = \"kp_123\"\n  flags = {\n")
 	for _, key := range sortedKeys(flags) {
 		fmt.Fprintf(&b, "    %q = %q\n", key, flags[key])
 	}
@@ -179,7 +179,7 @@ func TestUserFeatureFlagsResourceAgainstStubServer(t *testing.T) {
 		),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccUserFeatureFlagsConfig("kp_123", map[string]string{"beta": "true", "seats": "10"}),
+				Config: testAccUserFeatureFlagsConfig(map[string]string{"beta": "true", "seats": "10"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "id", "kp_123"),
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "user_id", "kp_123"),
@@ -188,7 +188,7 @@ func TestUserFeatureFlagsResourceAgainstStubServer(t *testing.T) {
 				),
 			},
 			{
-				Config: testAccUserFeatureFlagsConfig("kp_123", map[string]string{"beta": "false", "theme": "pink"}),
+				Config: testAccUserFeatureFlagsConfig(map[string]string{"beta": "false", "theme": "pink"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags.%", "2"),
 					resource.TestCheckNoResourceAttr("kinde_user_feature_flags.test", "flags.seats"),
@@ -199,12 +199,12 @@ func TestUserFeatureFlagsResourceAgainstStubServer(t *testing.T) {
 			},
 			{
 				PreConfig:          func() { flags.setOverride("theme", "changed in kinde") },
-				Config:             testAccUserFeatureFlagsConfig("kp_123", map[string]string{"beta": "false", "theme": "pink"}),
+				Config:             testAccUserFeatureFlagsConfig(map[string]string{"beta": "false", "theme": "pink"}),
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: true,
 			},
 			{
-				Config: testAccUserFeatureFlagsConfig("kp_123", map[string]string{"beta": "false", "theme": "pink"}),
+				Config: testAccUserFeatureFlagsConfig(map[string]string{"beta": "false", "theme": "pink"}),
 				Check:  expectOverride("theme", "pink"),
 			},
 			{
@@ -235,7 +235,7 @@ func TestUserFeatureFlagsResourceReportsFailedCreate(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccUserFeatureFlagsConfig("kp_123", map[string]string{"alpha": "true", "missing": "x"}),
+				Config:      testAccUserFeatureFlagsConfig(map[string]string{"alpha": "true", "missing": "x"}),
 				ExpectError: regexp.MustCompile(`FEATURE_FLAG_NOT_FOUND`),
 			},
 		},

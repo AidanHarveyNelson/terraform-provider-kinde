@@ -19,16 +19,24 @@ func testAccManagementClient() (*ManagementAPI, error) {
 	return newManagementClient(context.Background(), kinde.NewClientOptions())
 }
 
+func testAccScope(r any) featureFlagOverrideScope {
+	res, ok := r.(*featureFlagOverridesResource)
+	if !ok {
+		panic(fmt.Sprintf("unexpected resource type %T", r))
+	}
+	return res.scope
+}
+
 func testAccEnvironmentScope() featureFlagOverrideScope {
-	return NewEnvironmentFeatureFlagsResource().(*featureFlagOverridesResource).scope
+	return testAccScope(NewEnvironmentFeatureFlagsResource())
 }
 
 func testAccOrganizationScope() featureFlagOverrideScope {
-	return NewOrganizationFeatureFlagsResource().(*featureFlagOverridesResource).scope
+	return testAccScope(NewOrganizationFeatureFlagsResource())
 }
 
 func testAccUserScope() featureFlagOverrideScope {
-	return NewUserFeatureFlagsResource().(*featureFlagOverridesResource).scope
+	return testAccScope(NewUserFeatureFlagsResource())
 }
 
 func testAccCheckKindeFlagValues(scope featureFlagOverrideScope, owner *string, want map[string]string) resource.TestCheckFunc {
