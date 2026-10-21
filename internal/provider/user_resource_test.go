@@ -13,13 +13,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/nxt-fwd/kinde-go/api/users"
 )
 
 // TestUserResource_FiltersOAuthIdentities is a simple unit test for the OAuth filtering logic.
 func TestUserResource_FiltersOAuthIdentities(t *testing.T) {
 	// Create test data with mixed identity types
-	identities := []users.Identity{
+	identities := []kindeIdentity{
 		{Type: "email", Name: "test@example.com"},
 		{Type: "username", Name: "testuser"},
 		{Type: "oauth2:google", Name: "test@gmail.com"},
