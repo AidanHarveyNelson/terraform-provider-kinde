@@ -112,6 +112,7 @@ type fakeKinde struct {
 	apis           map[string]*fakeAPI
 	applications   map[string]*fakeApplication
 	appConnections map[string]map[string]bool
+	disabledLinks  map[string]bool
 	connections    map[string]*fakeConnection
 	organizations  map[string]*fakeOrganization
 	orgMembers     map[string]map[string][]string
@@ -130,6 +131,7 @@ func newFakeKinde(t *testing.T) *fakeKinde {
 		apis:           map[string]*fakeAPI{},
 		applications:   map[string]*fakeApplication{},
 		appConnections: map[string]map[string]bool{},
+		disabledLinks:  map[string]bool{},
 		connections:    map[string]*fakeConnection{},
 		organizations:  map[string]*fakeOrganization{},
 		orgMembers:     map[string]map[string][]string{},
@@ -356,6 +358,7 @@ func (f *fakeKinde) registerRoutes() {
 			return
 		}
 		delete(f.appConnections[p[0]], p[1])
+		f.disabledLinks[p[0]+":"+p[1]] = true
 		fakeOK(w, http.StatusOK)
 	})
 

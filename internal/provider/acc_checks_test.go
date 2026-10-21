@@ -141,3 +141,62 @@ func testAccCheckKindeAPIsDestroyed(state *terraform.State) error {
 		return err == nil, err
 	})(state)
 }
+
+func testAccCheckKindeApplication(address, name, appType string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		app, err := getKindeApplication(ctx, client, rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		if err := expectEqual("application name", app.Name, name); err != nil {
+			return err
+		}
+		if err := expectEqual("application type", app.Type, appType); err != nil {
+			return err
+		}
+		return expectEqual("application client_id", app.ClientID, rs.Primary.Attributes["client_id"])
+	})
+}
+
+func testAccCheckKindeApplicationsDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_application", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := getKindeApplication(ctx, client, rs.Primary.ID)
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})(state)
+}
+
+func testAccApplicationHasConnection(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+	connections, err := getApplicationConnections(ctx, client, rs.Primary.Attributes["application_id"])
+	if err != nil {
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, connection := range connections {
+		if connection.ID == rs.Primary.Attributes["connection_id"] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func testAccCheckKindeApplicationConnection(address string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		enabled, err := testAccApplicationHasConnection(ctx, client, rs)
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			return fmt.Errorf("connection %s is not enabled for application %s in Kinde", rs.Primary.Attributes["connection_id"], rs.Primary.Attributes["application_id"])
+		}
+		return nil
+	})
+}
+
+func testAccCheckKindeApplicationConnectionsDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_application_connection", testAccApplicationHasConnection)(state)
+}
