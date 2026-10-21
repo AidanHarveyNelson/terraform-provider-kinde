@@ -4,9 +4,28 @@
 package provider
 
 import (
+	"context"
+	"net/url"
+
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/apis"
 )
+
+type kindeAPI struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Audience        string `json:"audience"`
+	IsManagementAPI bool   `json:"is_management_api"`
+}
+
+func getKindeAPI(ctx context.Context, client *ManagementAPI, id string) (*kindeAPI, error) {
+	var response struct {
+		API kindeAPI `json:"api"`
+	}
+	if err := client.getJSON(ctx, "/api/v1/apis/"+url.PathEscape(id), &response); err != nil {
+		return nil, err
+	}
+	return &response.API, nil
+}
 
 type APIResourceModel struct {
 	ID              types.String `tfsdk:"id"`
@@ -15,8 +34,8 @@ type APIResourceModel struct {
 	IsManagementAPI types.Bool   `tfsdk:"is_management_api"`
 }
 
-func expandAPIResourceModel(model APIResourceModel) *apis.API {
-	api := &apis.API{
+func expandAPIResourceModel(model APIResourceModel) *kindeAPI {
+	api := &kindeAPI{
 		ID:       model.ID.ValueString(),
 		Name:     model.Name.ValueString(),
 		Audience: model.Audience.ValueString(),
@@ -29,7 +48,7 @@ func expandAPIResourceModel(model APIResourceModel) *apis.API {
 	return api
 }
 
-func flattenAPIResource(resource *apis.API) APIResourceModel {
+func flattenAPIResource(resource *kindeAPI) APIResourceModel {
 	model := APIResourceModel{
 		ID:       types.StringValue(resource.ID),
 		Name:     types.StringValue(resource.Name),
@@ -47,15 +66,15 @@ type APIDataSourceModel struct {
 	Audience types.String `tfsdk:"audience"`
 }
 
-func expandAPIDataSourceModel(model APIDataSourceModel) *apis.API {
-	return &apis.API{
+func expandAPIDataSourceModel(model APIDataSourceModel) *kindeAPI {
+	return &kindeAPI{
 		ID:       model.ID.ValueString(),
 		Name:     model.Name.ValueString(),
 		Audience: model.Audience.ValueString(),
 	}
 }
 
-func flattenAPIDataSource(resource *apis.API) APIDataSourceModel {
+func flattenAPIDataSource(resource *kindeAPI) APIDataSourceModel {
 	return APIDataSourceModel{
 		ID:       types.StringValue(resource.ID),
 		Name:     types.StringValue(resource.Name),
