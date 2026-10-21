@@ -14,7 +14,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/nxt-fwd/kinde-go/api/applications"
 )
 
 var (
@@ -27,7 +26,7 @@ func NewApplicationResource() resource.Resource {
 }
 
 type ApplicationResource struct {
-	client *applications.Client
+	client *ManagementAPI
 }
 
 type applicationResourceModel struct {
@@ -110,7 +109,7 @@ func (r *ApplicationResource) Configure(ctx context.Context, req resource.Config
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -119,15 +118,13 @@ func (r *ApplicationResource) Configure(ctx context.Context, req resource.Config
 		return
 	}
 
-	if client.Applications == nil {
-		resp.Diagnostics.AddError(
-			"Unconfigured Applications Client",
-			"Expected configured applications client. Please report this issue to the provider developers.",
-		)
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
 		return
 	}
 
-	r.client = client.Applications
+	r.client = client
 	tflog.Debug(ctx, "Application resource configured")
 }
 
@@ -141,12 +138,7 @@ func (r *ApplicationResource) Create(ctx context.Context, req resource.CreateReq
 	}
 
 	// Create application with required fields
-	createParams := applications.CreateParams{
-		Name: plan.Name.ValueString(),
-		Type: applications.Type(plan.Type.ValueString()),
-	}
-
-	app, err := r.client.Create(ctx, createParams)
+	app, err := createKindeApplication(ctx, r.client, plan.Name.ValueString(), plan.Type.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Application",
@@ -187,14 +179,14 @@ func (r *ApplicationResource) Create(ctx context.Context, req resource.CreateReq
 			"redirect_count": len(redirectURIs),
 		})
 
-		updateParams := applications.UpdateParams{
+		updateParams := kindeApplicationUpdate{
 			LoginURI:     plan.LoginURI.ValueString(),
 			HomepageURI:  plan.HomepageURI.ValueString(),
 			LogoutURIs:   logoutURIs,
 			RedirectURIs: redirectURIs,
 		}
 
-		err = r.client.Update(ctx, app.ID, updateParams)
+		err = updateKindeApplication(ctx, r.client, app.ID, updateParams)
 		if err != nil {
 			if cleanupErr := r.cleanupApplicationOnCreateFailure(ctx, app.ID); cleanupErr != nil {
 				resp.Diagnostics.AddWarning(
@@ -227,7 +219,7 @@ func (r *ApplicationResource) cleanupApplicationOnCreateFailure(ctx context.Cont
 		return nil
 	}
 
-	if err := r.client.Delete(ctx, applicationID); err != nil && !isNotFoundError(err) {
+	if err := deleteKindeApplication(ctx, r.client, applicationID); err != nil && !isNotFoundError(err) {
 		tflog.Warn(ctx, "Failed to clean up application after create failure", map[string]interface{}{
 			"id":    applicationID,
 			"error": err.Error(),
@@ -246,7 +238,7 @@ func (r *ApplicationResource) Read(ctx context.Context, req resource.ReadRequest
 		return
 	}
 
-	app, err := r.client.Get(ctx, state.ID.ValueString())
+	app, err := getKindeApplication(ctx, r.client, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -262,7 +254,7 @@ func (r *ApplicationResource) Read(ctx context.Context, req resource.ReadRequest
 	// Set all values from application data
 	state.ID = types.StringValue(app.ID)
 	state.Name = types.StringValue(app.Name)
-	state.Type = types.StringValue(string(app.Type))
+	state.Type = types.StringValue(app.Type)
 	state.ClientID = types.StringValue(app.ClientID)
 	state.ClientSecret = types.StringValue(app.ClientSecret)
 
@@ -331,14 +323,14 @@ func (r *ApplicationResource) Update(ctx context.Context, req resource.UpdateReq
 			"redirect_count": len(redirectURIs),
 		})
 
-		updateParams := applications.UpdateParams{
+		updateParams := kindeApplicationUpdate{
 			LoginURI:     plan.LoginURI.ValueString(),
 			HomepageURI:  plan.HomepageURI.ValueString(),
 			LogoutURIs:   logoutURIs,
 			RedirectURIs: redirectURIs,
 		}
 
-		err := r.client.Update(ctx, plan.ID.ValueString(), updateParams)
+		err := updateKindeApplication(ctx, r.client, plan.ID.ValueString(), updateParams)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error Updating Application",
@@ -362,7 +354,7 @@ func (r *ApplicationResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 
-	err := r.client.Delete(ctx, state.ID.ValueString())
+	err := deleteKindeApplication(ctx, r.client, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			return
