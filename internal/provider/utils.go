@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 // Package provider contains the provider implementation.
@@ -89,4 +91,25 @@ func statusCodeFromError(err error) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func managementAPIError(operation string, res any) error {
+	val := reflect.ValueOf(res)
+	if val.Kind() == reflect.Pointer && !val.IsNil() {
+		val = val.Elem()
+	}
+
+	if val.Kind() == reflect.Struct {
+		if field := val.FieldByName("Errors"); field.IsValid() {
+			if apiErrs, ok := field.Interface().([]management_api.Error); ok && len(apiErrs) > 0 {
+				messages := make([]string, 0, len(apiErrs))
+				for _, apiErr := range apiErrs {
+					messages = append(messages, fmt.Sprintf("%s: %s", apiErr.Code.Or("UNKNOWN"), apiErr.Message.Or("")))
+				}
+				return fmt.Errorf("%s failed (%T): %s", operation, res, strings.Join(messages, "; "))
+			}
+		}
+	}
+
+	return fmt.Errorf("%s failed: unexpected response %T", operation, res)
 }

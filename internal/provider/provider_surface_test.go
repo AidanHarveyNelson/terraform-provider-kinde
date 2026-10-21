@@ -35,6 +35,7 @@ func TestKindeProviderResourcesSurface(t *testing.T) {
 		"kinde_user",
 		"kinde_permission",
 		"kinde_user_role",
+		"kinde_environment_feature_flags",
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -58,6 +59,7 @@ func TestKindeProviderDataSourcesSurface(t *testing.T) {
 		"kinde_api",
 		"kinde_application",
 		"kinde_connections",
+		"kinde_environment",
 	}
 
 	if !reflect.DeepEqual(got, want) {

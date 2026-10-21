@@ -10,7 +10,7 @@ Manage your Kinde business as code — applications, APIs, connections, organiza
 
 ## Development
 
-Requires Terraform 1.0+ and Go 1.23+
+Requires Terraform 1.0+ and Go 1.24+
 
 ## Getting started
 
@@ -26,6 +26,7 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_application` | `create:applications`, `read:applications`, `update:applications`, `delete:applications` |
 | `kinde_application_connection` | `create:application_connections`, `read:application_connections`, `delete:application_connections` |
 | `kinde_connection` | `create:connections`, `read:connections`, `update:connections`, `delete:connections` |
+| `kinde_environment_feature_flags` | `read:environment_feature_flags`, `update:environment_feature_flags`, `delete:environment_feature_flags` |
 | `kinde_organization` | `create:organizations`, `read:organizations`, `update:organizations`, `delete:organizations` |
 | `kinde_organization_user` | `create:organization_users`, `read:organization_users`, `update:organization_users`, `delete:organization_users` |
 | `kinde_permission` | `create:permissions`, `read:permissions`, `update:permissions`, `delete:permissions` |
@@ -38,6 +39,7 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_api` | `read:apis` |
 | `kinde_application` | `read:applications` |
 | `kinde_connections` | `read:connections` |
+| `kinde_environment` | `read:environments` |
 
 Setting the `roles` attribute on `kinde_organization_user` also requires the `organization_user_roles` scopes listed above for `kinde_user_role`.
 
@@ -102,6 +104,7 @@ provider "kinde" {}
 | `kinde_application` | Applications (regular, SPA, or M2M) |
 | `kinde_application_connection` | Enables a connection on an application |
 | `kinde_connection` | Social and enterprise identity connections |
+| `kinde_environment_feature_flags` | Feature flag overrides for the environment |
 | `kinde_organization` | Organizations, including theme colors and handle |
 | `kinde_organization_user` | Membership of a user in an organization |
 | `kinde_permission` | Permissions |
@@ -116,6 +119,7 @@ provider "kinde" {}
 | `kinde_api` | Look up an existing API |
 | `kinde_application` | Look up an existing application |
 | `kinde_connections` | List connections in your business |
+| `kinde_environment` | Look up the environment the provider is authenticated against |
 
 ### Key Features
 
