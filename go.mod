@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/terraform-plugin-testing v1.11.0
 	github.com/kinde-oss/kinde-go v0.3.0
 	github.com/nyaruka/phonenumbers v1.5.0
+	golang.org/x/oauth2 v0.34.0
 )
 
 require (
@@ -73,7 +74,6 @@ require (
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect

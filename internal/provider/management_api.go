@@ -13,9 +13,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
 	"github.com/kinde-oss/kinde-go/oauth2/client_credentials"
+	"golang.org/x/oauth2"
 )
 
 type ManagementAPI struct {
@@ -82,35 +84,45 @@ func newManagementClient(ctx context.Context, opts managementConfig) (*Managemen
 		return nil, fmt.Errorf("failed to create client credentials flow: %w", err)
 	}
 
-	httpClient, err := flow.GetClient(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create management API HTTP client: %w", err)
-	}
+	tokens := &managementTokenSource{ctx: ctx, flow: flow}
 
-	client, err := management_api.NewClient(opts.Domain, managementSecuritySource{flow: flow}, management_api.WithClient(httpClient))
+	client, err := management_api.NewClient(opts.Domain, tokens, management_api.WithClient(&http.Client{}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create management API client: %w", err)
 	}
 
-	return &ManagementAPI{Client: client, httpClient: httpClient, baseURL: opts.Domain}, nil
+	return &ManagementAPI{Client: client, httpClient: oauth2.NewClient(ctx, tokens), baseURL: opts.Domain}, nil
 }
 
-type managementSecuritySource struct {
+type managementTokenSource struct {
+	mu   sync.Mutex
+	ctx  context.Context
 	flow client_credentials.IClientCredentialsFlow
 }
 
-func (s managementSecuritySource) KindeBearerAuth(ctx context.Context, _ management_api.OperationName) (management_api.KindeBearerAuth, error) {
-	token, err := s.flow.GetToken(ctx)
+func (s *managementTokenSource) Token() (*oauth2.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	token, err := s.flow.GetToken(s.ctx)
 	if err != nil {
-		return management_api.KindeBearerAuth{}, err
+		return nil, err
 	}
 
 	rawToken := token.GetRawToken()
 	if rawToken == nil {
-		return management_api.KindeBearerAuth{}, fmt.Errorf("access token is empty")
+		return nil, fmt.Errorf("access token is empty")
 	}
+	tokenCopy := *rawToken
+	return &tokenCopy, nil
+}
 
-	return management_api.KindeBearerAuth{Token: rawToken.AccessToken}, nil
+func (s *managementTokenSource) KindeBearerAuth(_ context.Context, _ management_api.OperationName) (management_api.KindeBearerAuth, error) {
+	token, err := s.Token()
+	if err != nil {
+		return management_api.KindeBearerAuth{}, err
+	}
+	return management_api.KindeBearerAuth{Token: token.AccessToken}, nil
 }
 
 func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error {
