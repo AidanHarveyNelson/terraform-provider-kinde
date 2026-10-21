@@ -5,6 +5,7 @@ package provider
 
 import (
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
@@ -24,6 +25,7 @@ func TestAccAPIDataSource(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.kinde_api.test", "name", testID),
 					resource.TestCheckResourceAttr("data.kinde_api.test", "audience", testID),
+					testAccCheckKindeAPI("kinde_api.test", testID, testID),
 				),
 			},
 		},
@@ -41,4 +43,28 @@ data "kinde_api" "test" {
 	id = kinde_api.test.id
 }
 `, testID)
+}
+
+func TestAPIDataSourceOffline(t *testing.T) {
+	fake := newFakeKinde(t)
+	fake.do(func() {
+		fake.apis["api_existing"] = &fakeAPI{ID: "api_existing", Name: "Existing", Audience: "https://existing.example.com"}
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `data "kinde_api" "test" { id = "api_existing" }`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.kinde_api.test", "name", "Existing"),
+					resource.TestCheckResourceAttr("data.kinde_api.test", "audience", "https://existing.example.com"),
+				),
+			},
+			{
+				Config:      `data "kinde_api" "test" { id = "api_missing" }`,
+				ExpectError: regexp.MustCompile(`API_INVALID`),
+			},
+		},
+	})
 }

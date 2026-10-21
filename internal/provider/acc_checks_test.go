@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -94,5 +95,49 @@ func testAccCheckKindePermissionsDestroyed(state *terraform.State) error {
 	return testAccCheckKindeDestroyed("kinde_permission", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
 		permission, err := testAccFindPermission(ctx, client, rs.Primary.ID)
 		return permission != nil, err
+	})(state)
+}
+
+func captureAttr(address, attribute string, dst *string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		value, err := stateAttr(state, address, attribute)
+		*dst = value
+		return err
+	}
+}
+
+func testAccDeleteOutsideTerraform(t *testing.T, what string, remove func(ctx context.Context, client *ManagementAPI) error) func() {
+	return func() {
+		ctx := context.Background()
+		client, err := newManagementClient(ctx, managementConfigFromEnv())
+		if err != nil {
+			t.Fatalf("failed to create management client: %s", err)
+		}
+		if err := remove(ctx, client); err != nil {
+			t.Fatalf("failed to delete %s outside Terraform: %s", what, err)
+		}
+	}
+}
+
+func testAccCheckKindeAPI(address, name, audience string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		api, err := getKindeAPI(ctx, client, rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		if err := expectEqual("API name", api.Name, name); err != nil {
+			return err
+		}
+		return expectEqual("API audience", api.Audience, audience)
+	})
+}
+
+func testAccCheckKindeAPIsDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_api", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := getKindeAPI(ctx, client, rs.Primary.ID)
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
 	})(state)
 }
