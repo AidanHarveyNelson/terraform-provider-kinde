@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`kinde-oss/kinde-go`](https://github.com/kinde-oss/kinde-go) SDK.
 - `kinde_feature_flag` resource for feature flag definitions.
 - `kinde_organization_feature_flags` resource for organization feature flag overrides.
+- `kinde_user_feature_flags` resource for user feature flag overrides. Kinde has
+  no API to remove a user override, so removing one only stops Terraform
+  managing it.
 
 ### Changed
 

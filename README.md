@@ -34,6 +34,7 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_permission` | `create:permissions`, `read:permissions`, `update:permissions`, `delete:permissions` |
 | `kinde_role` | `create:roles`, `read:roles`, `update:roles`, `delete:roles`, `read:role_permissions`, `update:role_permissions`, `delete:role_permissions` |
 | `kinde_user` | `create:users`, `read:users`, `update:users`, `delete:users`, `create:user_identities`, `read:user_identities` |
+| `kinde_user_feature_flags` | `update:user_feature_flags` |
 | `kinde_user_role` | `create:organization_user_roles`, `read:organization_user_roles`, `delete:organization_user_roles` |
 
 | Data source | Required scopes |
@@ -114,6 +115,7 @@ provider "kinde" {}
 | `kinde_permission` | Permissions |
 | `kinde_role` | Roles and their assigned permissions |
 | `kinde_user` | Users and their identities |
+| `kinde_user_feature_flags` | Feature flag overrides for a user (Kinde can't remove user overrides) |
 | `kinde_user_role` | Assignment of a role to a user in an organization |
 
 ## Data sources
