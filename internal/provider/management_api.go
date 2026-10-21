@@ -32,7 +32,7 @@ func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", path, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {

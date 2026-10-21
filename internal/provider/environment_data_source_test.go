@@ -175,8 +175,8 @@ func newStubManagementServer(t *testing.T, handlers map[string]http.HandlerFunc)
 					"kid": keyID,
 					"alg": "RS256",
 					"use": "sig",
-					"n":   base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
-					"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes()),
+					"n":   base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+					"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
 				}},
 			})
 		default:
