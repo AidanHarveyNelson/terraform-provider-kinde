@@ -6,6 +6,9 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -28,24 +31,12 @@ type PermissionResource struct {
 	client *permissions.Client
 }
 
-// permissionsPage adapts a raw /api/v1/permissions response page to the
-// shared getAllPages pagination helper.
 type permissionsPage struct {
 	Code        string                   `json:"code"`
 	Message     string                   `json:"message"`
 	NextToken   string                   `json:"next_token"`
 	Permissions []permissions.Permission `json:"permissions"`
 }
-
-func (p permissionsPage) getData() []permissions.Permission { return p.Permissions }
-
-func (p permissionsPage) getNextToken() string { return p.NextToken }
-
-// Compile-time assertion that permissionsPage satisfies kindePage. This also
-// keeps static analysis tools that don't fully trace generic instantiations
-// (e.g. getAllPages[permissions.Permission, permissionsPage]) from flagging
-// getData/getNextToken as unused.
-var _ kindePage[permissions.Permission] = permissionsPage{}
 
 func (r *PermissionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_permission"
@@ -272,7 +263,21 @@ func (r *PermissionResource) ImportState(ctx context.Context, req resource.Impor
 }
 
 func (r *PermissionResource) listAllPermissions(ctx context.Context) ([]permissions.Permission, error) {
-	return getAllPages[permissions.Permission, permissionsPage](ctx, r.client, "/api/v1/permissions", nil)
+	return getAllPages(ctx, func(ctx context.Context, nextToken string) ([]permissions.Permission, string, error) {
+		query := url.Values{"page_size": {strconv.Itoa(defaultPageSize)}}
+		if nextToken != "" {
+			query.Set("next_token", nextToken)
+		}
+		req, err := r.client.NewRequest(ctx, http.MethodGet, "/api/v1/permissions", query, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		var page permissionsPage
+		if err := r.client.DoRequest(req, &page); err != nil {
+			return nil, "", err
+		}
+		return page.Permissions, page.NextToken, nil
+	})
 }
 
 func (r *PermissionResource) cleanupPermissionOnCreateFailure(ctx context.Context, permissionID string) error {

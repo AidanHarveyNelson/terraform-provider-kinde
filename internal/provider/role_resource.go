@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -34,24 +35,12 @@ type RoleResource struct {
 	client *roles.Client
 }
 
-// rolePermissionsPage adapts a raw /api/v1/roles/{id}/permissions response
-// page to the shared getAllPages pagination helper.
 type rolePermissionsPage struct {
 	Code        string             `json:"code"`
 	Message     string             `json:"message"`
 	NextToken   string             `json:"next_token"`
 	Permissions []roles.Permission `json:"permissions"`
 }
-
-func (p rolePermissionsPage) getData() []roles.Permission { return p.Permissions }
-
-func (p rolePermissionsPage) getNextToken() string { return p.NextToken }
-
-// Compile-time assertion that rolePermissionsPage satisfies kindePage. This
-// also keeps static analysis tools that don't fully trace generic
-// instantiations (e.g. getAllPages[roles.Permission, rolePermissionsPage])
-// from flagging getData/getNextToken as unused.
-var _ kindePage[roles.Permission] = rolePermissionsPage{}
 
 type nonEmptyStringSetValidator struct{}
 
@@ -510,7 +499,21 @@ func (r *RoleResource) getRole(ctx context.Context, id string) (*roles.Role, err
 
 func (r *RoleResource) getRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	endpoint := fmt.Sprintf("/api/v1/roles/%s/permissions", url.PathEscape(roleID))
-	permissions, err := getAllPages[roles.Permission, rolePermissionsPage](ctx, r.client, endpoint, nil)
+	permissions, err := getAllPages(ctx, func(ctx context.Context, nextToken string) ([]roles.Permission, string, error) {
+		query := url.Values{"page_size": {strconv.Itoa(defaultPageSize)}}
+		if nextToken != "" {
+			query.Set("next_token", nextToken)
+		}
+		req, err := r.client.NewRequest(ctx, http.MethodGet, endpoint, query, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		var page rolePermissionsPage
+		if err := r.client.DoRequest(req, &page); err != nil {
+			return nil, "", err
+		}
+		return page.Permissions, page.NextToken, nil
+	})
 	if err != nil {
 		return nil, err
 	}
