@@ -31,8 +31,24 @@ func splitID(id string, expectedParts int, format string) ([]string, error) {
 	return parts, nil
 }
 
+var notFoundErrorCodes = []string{
+	"API_INVALID",
+	"INVALID_API",
+	"INVALID_APP_ID",
+	"APPLICATION_ID_INVALID",
+	"APPLICATION_NOT_FOUND",
+	"ORGANIZATION_INVALID",
+	"ROLE_ID_INVALID",
+	"INVALID_ROLE_ID",
+	"CONNECTION_NOT_FOUND",
+	"USER_INVALID",
+	"INVALID_PERMISSION_ID",
+	"IDENTITY_NOT_FOUND",
+}
+
 func isNotFoundError(err error) bool {
-	return hasStatusCode(err, http.StatusNotFound)
+	return hasStatusCode(err, http.StatusNotFound) ||
+		(hasStatusCode(err, http.StatusBadRequest) && containsAnyErrorCode(err, notFoundErrorCodes...))
 }
 
 func isUserNotInOrganizationError(err error) bool {
@@ -94,6 +110,11 @@ func statusCodeFromError(err error) (int, bool) {
 }
 
 func managementAPIError(operation string, res any) error {
+	if res == nil {
+		return fmt.Errorf("%s failed: empty response", operation)
+	}
+
+	status := responseStatusCode(res)
 	val := reflect.ValueOf(res)
 	if val.Kind() == reflect.Pointer && !val.IsNil() {
 		val = val.Elem()
@@ -106,10 +127,16 @@ func managementAPIError(operation string, res any) error {
 				for _, apiErr := range apiErrs {
 					messages = append(messages, fmt.Sprintf("%s: %s", apiErr.Code.Or("UNKNOWN"), apiErr.Message.Or("")))
 				}
-				return fmt.Errorf("%s failed (%T): %s", operation, res, strings.Join(messages, "; "))
+				return &managementRequestError{
+					StatusCode: status,
+					Message:    fmt.Sprintf("%s failed (%T): %s", operation, res, strings.Join(messages, "; ")),
+				}
 			}
 		}
 	}
 
-	return fmt.Errorf("%s failed: unexpected response %T", operation, res)
+	return &managementRequestError{
+		StatusCode: status,
+		Message:    fmt.Sprintf("%s failed: unexpected response %T", operation, res),
+	}
 }

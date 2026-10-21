@@ -12,11 +12,10 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 func testAccManagementClient() (*ManagementAPI, error) {
-	return newManagementClient(context.Background(), kinde.NewClientOptions())
+	return newManagementClient(context.Background(), managementConfigFromEnv())
 }
 
 func testAccScope(r any) featureFlagOverrideScope {

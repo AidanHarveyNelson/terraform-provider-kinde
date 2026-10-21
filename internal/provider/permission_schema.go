@@ -5,8 +5,15 @@ package provider
 
 import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/permissions"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
+
+type kindePermission struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
 
 type PermissionResourceModel struct {
 	ID          types.String `tfsdk:"id"`
@@ -15,23 +22,29 @@ type PermissionResourceModel struct {
 	Description types.String `tfsdk:"description"`
 }
 
-func expandPermissionCreateParams(d PermissionResourceModel) permissions.CreateParams {
-	return permissions.CreateParams{
+type permissionCreateParams struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Key         string `json:"key"`
+}
+
+func expandPermissionCreateParams(d PermissionResourceModel) permissionCreateParams {
+	return permissionCreateParams{
 		Name:        d.Name.ValueString(),
 		Key:         d.Key.ValueString(),
 		Description: d.Description.ValueString(),
 	}
 }
 
-func expandPermissionUpdateParams(d PermissionResourceModel) permissions.UpdateParams {
-	return permissions.UpdateParams{
-		Name:        d.Name.ValueString(),
-		Key:         d.Key.ValueString(),
-		Description: d.Description.ValueString(),
+func expandPermissionUpdateParams(d PermissionResourceModel) management_api.UpdatePermissionsReq {
+	return management_api.UpdatePermissionsReq{
+		Name:        management_api.NewOptString(d.Name.ValueString()),
+		Key:         management_api.NewOptString(d.Key.ValueString()),
+		Description: management_api.NewOptString(d.Description.ValueString()),
 	}
 }
 
-func flattenPermissionResource(permission *permissions.Permission) PermissionResourceModel {
+func flattenPermissionResource(permission *kindePermission) PermissionResourceModel {
 	return PermissionResourceModel{
 		ID:          types.StringValue(permission.ID),
 		Name:        types.StringValue(permission.Name),
@@ -48,8 +61,8 @@ type PermissionDataSourceModel struct {
 }
 
 //nolint:unused
-func expandPermissionDataSourceModel(model PermissionDataSourceModel) *permissions.Permission {
-	return &permissions.Permission{
+func expandPermissionDataSourceModel(model PermissionDataSourceModel) *kindePermission {
+	return &kindePermission{
 		ID:          model.ID.ValueString(),
 		Name:        model.Name.ValueString(),
 		Key:         model.Key.ValueString(),
@@ -58,7 +71,7 @@ func expandPermissionDataSourceModel(model PermissionDataSourceModel) *permissio
 }
 
 //nolint:unused
-func flattenPermissionDataSource(permission *permissions.Permission) PermissionDataSourceModel {
+func flattenPermissionDataSource(permission *kindePermission) PermissionDataSourceModel {
 	return PermissionDataSourceModel{
 		ID:          types.StringValue(permission.ID),
 		Name:        types.StringValue(permission.Name),

@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/applications"
 )
 
 var _ datasource.DataSource = &ApplicationDataSource{}
@@ -20,7 +19,7 @@ func NewApplicationDataSource() datasource.DataSource {
 }
 
 type ApplicationDataSource struct {
-	client *applications.Client
+	client *ManagementAPI
 }
 
 func (d *ApplicationDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -61,7 +60,7 @@ func (d *ApplicationDataSource) Configure(ctx context.Context, req datasource.Co
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
@@ -70,7 +69,13 @@ func (d *ApplicationDataSource) Configure(ctx context.Context, req datasource.Co
 		return
 	}
 
-	d.client = client.Applications
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	d.client = client
 }
 
 func (d *ApplicationDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -81,7 +86,7 @@ func (d *ApplicationDataSource) Read(ctx context.Context, req datasource.ReadReq
 		return
 	}
 
-	app, err := d.client.Get(ctx, state.ID.ValueString())
+	app, err := getKindeApplication(ctx, d.client, state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Application",
@@ -91,7 +96,7 @@ func (d *ApplicationDataSource) Read(ctx context.Context, req datasource.ReadReq
 	}
 
 	state.Name = types.StringValue(app.Name)
-	state.Type = types.StringValue(string(app.Type))
+	state.Type = types.StringValue(app.Type)
 	state.ClientID = types.StringValue(app.ClientID)
 	state.ClientSecret = types.StringValue(app.ClientSecret)
 

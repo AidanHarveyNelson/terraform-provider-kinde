@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 func TestAccFeatureFlagResource(t *testing.T) {
@@ -102,7 +101,7 @@ resource "kinde_feature_flag" "test" {
 func testAccCheckFeatureFlagGone(key string) resource.TestCheckFunc {
 	return func(*terraform.State) error {
 		ctx := context.Background()
-		client, err := newManagementClient(ctx, kinde.NewClientOptions())
+		client, err := newManagementClient(ctx, managementConfigFromEnv())
 		if err != nil {
 			return err
 		}

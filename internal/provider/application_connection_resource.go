@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -13,7 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/applications"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -26,7 +27,7 @@ func NewApplicationConnectionResource() resource.Resource {
 }
 
 type ApplicationConnectionResource struct {
-	client *applications.Client
+	client *ManagementAPI
 }
 
 type applicationConnectionResourceModel struct {
@@ -68,7 +69,7 @@ func (r *ApplicationConnectionResource) Configure(_ context.Context, req resourc
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -77,7 +78,13 @@ func (r *ApplicationConnectionResource) Configure(_ context.Context, req resourc
 		return
 	}
 
-	r.client = client.Applications
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *ApplicationConnectionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -89,8 +96,11 @@ func (r *ApplicationConnectionResource) Create(ctx context.Context, req resource
 	}
 
 	// Enable the connection
-	err := r.client.EnableConnection(ctx, plan.ApplicationID.ValueString(), plan.ConnectionID.ValueString())
-	if err != nil {
+	res, err := r.client.EnableConnection(ctx, management_api.EnableConnectionParams{
+		ApplicationID: plan.ApplicationID.ValueString(),
+		ConnectionID:  plan.ConnectionID.ValueString(),
+	})
+	if _, err = expectResponse[management_api.EnableConnectionOK]("enable connection", res, err); err != nil {
 		resp.Diagnostics.AddError(
 			"Error Enabling Connection",
 			fmt.Sprintf("Could not enable connection ID %s for application ID %s: %s", plan.ConnectionID.ValueString(), plan.ApplicationID.ValueString(), err),
@@ -114,7 +124,7 @@ func (r *ApplicationConnectionResource) Read(ctx context.Context, req resource.R
 	}
 
 	// Get application connections
-	connections, err := r.client.GetConnections(ctx, state.ApplicationID.ValueString())
+	connections, err := getApplicationConnections(ctx, r.client, state.ApplicationID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -166,8 +176,11 @@ func (r *ApplicationConnectionResource) Delete(ctx context.Context, req resource
 		return
 	}
 
-	err := r.client.DisableConnection(ctx, state.ApplicationID.ValueString(), state.ConnectionID.ValueString())
-	if err != nil {
+	res, err := r.client.RemoveConnection(ctx, management_api.RemoveConnectionParams{
+		ApplicationID: state.ApplicationID.ValueString(),
+		ConnectionID:  state.ConnectionID.ValueString(),
+	})
+	if _, err = expectResponse[management_api.SuccessResponse]("disable connection", res, err); err != nil {
 		if isNotFoundError(err) {
 			return
 		}
@@ -193,4 +206,21 @@ func (r *ApplicationConnectionResource) ImportState(ctx context.Context, req res
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("application_id"), idParts[0])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("connection_id"), idParts[1])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
+}
+
+type kindeApplicationConnection struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Strategy    string `json:"strategy"`
+}
+
+func getApplicationConnections(ctx context.Context, client *ManagementAPI, applicationID string) ([]kindeApplicationConnection, error) {
+	var response struct {
+		Connections []kindeApplicationConnection `json:"connections"`
+	}
+	if err := client.getJSON(ctx, "/api/v1/applications/"+url.PathEscape(applicationID)+"/connections", &response); err != nil {
+		return nil, err
+	}
+	return response.Connections, nil
 }

@@ -26,5 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The provider now requires Go 1.24 to build, for the official Kinde Go SDK.
+- Fork only: every resource and data source now uses the official
+  [`kinde-oss/kinde-go`](https://github.com/kinde-oss/kinde-go) SDK, and the
+  `nxt-fwd/kinde-go` dependency has been removed. Schemas, IDs and import
+  formats are unchanged, so existing state keeps working. Where Kinde's
+  responses differ from its OpenAPI spec (for example `null` in place of empty
+  arrays, or created IDs missing from the spec), the provider calls the API
+  directly instead of using the generated decoders.
 
 [Unreleased]: https://github.com/kinde-oss/terraform-provider-kinde/commits/main

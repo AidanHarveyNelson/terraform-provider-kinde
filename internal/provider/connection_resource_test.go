@@ -4,20 +4,22 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/nxt-fwd/kinde-go/api/connections"
 )
 
 func TestAccConnectionResource_OAuth2(t *testing.T) {
 	testID := acctest.RandomWithPrefix("tfacc")
+	var connectionID string
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckKindeConnectionsDestroyed,
 		Steps: []resource.TestStep{
 			// Create and Read testing
 			{
@@ -25,9 +27,10 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Test OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_id", "test-client-id"),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_secret", "test-client-secret"),
+					testAccCheckKindeConnection("kinde_connection.oauth2", testID, "Test OAuth2 Connection", strategyOAuth2Google),
 				),
 			},
 			// ImportState testing - we now expect empty options but not null
@@ -48,7 +51,7 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Test OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckNoResourceAttr("kinde_connection.oauth2", "options.client_id"),
 					resource.TestCheckNoResourceAttr("kinde_connection.oauth2", "options.client_secret"),
 				),
@@ -59,10 +62,24 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Updated OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_id", "updated-client-id"),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_secret", "updated-client-secret"),
+					testAccCheckKindeConnection("kinde_connection.oauth2", testID, "Updated OAuth2 Connection", strategyOAuth2Google),
+					captureAttr("kinde_connection.oauth2", "id", &connectionID),
 				),
+			},
+			{
+				PreConfig: testAccDeleteOutsideTerraform(t, "connection", func(ctx context.Context, client *ManagementAPI) error {
+					return (&ConnectionResource{client: client}).deleteConnection(ctx, connectionID)
+				}),
+				Config:             testAccConnectionResourceConfig_OAuth2Updated(testID),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccConnectionResourceConfig_OAuth2Updated(testID),
+				Check:  testAccCheckKindeConnection("kinde_connection.oauth2", testID, "Updated OAuth2 Connection", strategyOAuth2Google),
 			},
 		},
 	})
@@ -137,6 +154,7 @@ func TestAccConnectionResource_SensitiveFieldHandling(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckKindeConnectionsDestroyed,
 		Steps: []resource.TestStep{
 			// Create with no sensitive fields - should create with null values
 			{
@@ -371,4 +389,80 @@ resource "kinde_connection" "empty_to_populated" {
 	}
 }
 `, name)
+}
+
+func TestConnectionResourceOffline(t *testing.T) {
+	fake := newFakeKinde(t)
+	created := testAccConnectionResourceConfig_OAuth2("google")
+	updated := testAccConnectionResourceConfig_OAuth2Updated("google")
+	cleared := testAccConnectionResourceConfig_OAuth2EmptyOptions("google")
+	var connectionID string
+
+	expectConnection := func(displayName, clientID, clientSecret string) resource.TestCheckFunc {
+		return func(state *terraformState) error {
+			id, err := stateAttr(state, "kinde_connection.oauth2", "id")
+			if err != nil {
+				return err
+			}
+			return fake.check(func() error {
+				connection, ok := fake.connections[id]
+				if !ok {
+					return fmt.Errorf("connection %s not found in Kinde", id)
+				}
+				want := map[string]any{"client_id": clientID, "client_secret": clientSecret, "is_use_custom_domain": false}
+				if connection.Name != "google" || connection.DisplayName != displayName || connection.Strategy != strategyOAuth2Google ||
+					fmt.Sprint(connection.Options) != fmt.Sprint(want) {
+					return fmt.Errorf("unexpected connection in Kinde: %+v with options %v, want %v", *connection, connection.Options, want)
+				}
+				return nil
+			})(state)
+		}
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: fake.check(func() error {
+			if _, ok := fake.connections[connectionID]; ok {
+				return fmt.Errorf("connection %s still exists", connectionID)
+			}
+			return nil
+		}),
+		Steps: []resource.TestStep{
+			{
+				Config: created,
+				Check:  expectConnection("Test OAuth2 Connection", "test-client-id", "test-client-secret"),
+			},
+			{
+				ResourceName:            "kinde_connection.oauth2",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"options", "options.client_id", "options.client_secret"},
+			},
+			{
+				Config: updated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Updated OAuth2 Connection"),
+					expectConnection("Updated OAuth2 Connection", "updated-client-id", "updated-client-secret"),
+				),
+			},
+			{
+				Config: cleared,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("kinde_connection.oauth2", "options.client_id"),
+					expectConnection("Test OAuth2 Connection", "", ""),
+					captureAttr("kinde_connection.oauth2", "id", &connectionID),
+				),
+			},
+			offlineNotFoundStep(cleared, func() {
+				fake.do(func() { delete(fake.connections, connectionID) })
+			}),
+			{
+				Config: cleared,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					expectConnection("Test OAuth2 Connection", "", ""),
+					captureAttr("kinde_connection.oauth2", "id", &connectionID),
+				),
+			},
+		},
+	})
 }

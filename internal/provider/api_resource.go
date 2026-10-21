@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/nxt-fwd/kinde-go/api/apis"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -26,7 +26,7 @@ func NewAPIResource() resource.Resource {
 }
 
 type APIResource struct {
-	client *apis.Client
+	client *ManagementAPI
 }
 
 func (r *APIResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -66,7 +66,7 @@ func (r *APIResource) Configure(ctx context.Context, req resource.ConfigureReque
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -75,7 +75,13 @@ func (r *APIResource) Configure(ctx context.Context, req resource.ConfigureReque
 		return
 	}
 
-	r.client = client.APIs
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *APIResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -87,12 +93,11 @@ func (r *APIResource) Create(ctx context.Context, req resource.CreateRequest, re
 	}
 
 	api := expandAPIResourceModel(plan)
-	createParams := apis.CreateParams{
+	res, err := r.client.AddAPIs(ctx, &management_api.AddAPIsReq{
 		Name:     api.Name,
 		Audience: api.Audience,
-	}
-
-	createdAPI, err := r.client.Create(ctx, createParams)
+	})
+	created, err := expectResponse[management_api.CreateApisResponse]("create API", res, err)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating API",
@@ -101,8 +106,10 @@ func (r *APIResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
+	createdAPI := kindeAPI{ID: created.API.Or(management_api.CreateApisResponseAPI{}).ID.Or("")}
+
 	// Get the created API to populate computed fields
-	api, err = r.client.Get(ctx, createdAPI.ID)
+	api, err = getKindeAPI(ctx, r.client, createdAPI.ID)
 	if err != nil {
 		if cleanupErr := r.cleanupAPIOnCreateFailure(ctx, createdAPI.ID); cleanupErr != nil {
 			resp.Diagnostics.AddWarning(
@@ -131,7 +138,7 @@ func (r *APIResource) cleanupAPIOnCreateFailure(ctx context.Context, apiID strin
 		return nil
 	}
 
-	if err := r.client.Delete(ctx, apiID); err != nil && !isNotFoundError(err) {
+	if err := r.deleteAPI(ctx, apiID); err != nil && !isNotFoundError(err) {
 		tflog.Warn(ctx, "Failed to clean up API after create failure", map[string]interface{}{
 			"id":    apiID,
 			"error": err.Error(),
@@ -150,7 +157,7 @@ func (r *APIResource) Read(ctx context.Context, req resource.ReadRequest, resp *
 		return
 	}
 
-	api, err := r.client.Get(ctx, state.ID.ValueString())
+	api, err := getKindeAPI(ctx, r.client, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -183,7 +190,7 @@ func (r *APIResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 		return
 	}
 
-	err := r.client.Delete(ctx, state.ID.ValueString())
+	err := r.deleteAPI(ctx, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			return
@@ -198,4 +205,10 @@ func (r *APIResource) Delete(ctx context.Context, req resource.DeleteRequest, re
 
 func (r *APIResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func (r *APIResource) deleteAPI(ctx context.Context, apiID string) error {
+	res, err := r.client.DeleteAPI(ctx, management_api.DeleteAPIParams{APIID: apiID})
+	_, err = expectResponse[management_api.DeleteAPIResponse]("delete API", res, err)
+	return err
 }

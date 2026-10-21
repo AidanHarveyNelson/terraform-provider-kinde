@@ -6,6 +6,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -13,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/organizations"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -26,7 +28,7 @@ func NewUserRoleResource() resource.Resource {
 }
 
 type UserRoleResource struct {
-	client *organizations.Client
+	client *ManagementAPI
 }
 
 type UserRoleResourceModel struct {
@@ -74,7 +76,7 @@ func (r *UserRoleResource) Configure(_ context.Context, req resource.ConfigureRe
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -83,7 +85,13 @@ func (r *UserRoleResource) Configure(_ context.Context, req resource.ConfigureRe
 		return
 	}
 
-	r.client = client.Organizations
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *UserRoleResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -95,7 +103,7 @@ func (r *UserRoleResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Check if user has any roles in the organization (this verifies membership)
-	_, err := r.client.GetUserRoles(ctx, plan.OrganizationCode.ValueString(), plan.UserID.ValueString())
+	_, err := getOrganizationUserRoles(ctx, r.client, plan.OrganizationCode.ValueString(), plan.UserID.ValueString())
 	if err != nil {
 		if isUserNotInOrganizationError(err) {
 			resp.Diagnostics.AddError(
@@ -119,7 +127,7 @@ func (r *UserRoleResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	// Assign role to user
-	err = r.client.AddUserRole(ctx, plan.OrganizationCode.ValueString(), plan.UserID.ValueString(), plan.RoleID.ValueString())
+	err = addOrganizationUserRole(ctx, r.client, plan.OrganizationCode.ValueString(), plan.UserID.ValueString(), plan.RoleID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Assigning Role to User",
@@ -149,7 +157,7 @@ func (r *UserRoleResource) Read(ctx context.Context, req resource.ReadRequest, r
 	}
 
 	// Get user's roles
-	userRoles, err := r.client.GetUserRoles(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString())
+	userRoles, err := getOrganizationUserRoles(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -200,7 +208,7 @@ func (r *UserRoleResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	err := r.client.RemoveUserRole(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString(), state.RoleID.ValueString())
+	err := removeOrganizationUserRole(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString(), state.RoleID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			return
@@ -233,4 +241,41 @@ func (r *UserRoleResource) ImportState(ctx context.Context, req resource.ImportS
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_code"), idParts[0])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user_id"), idParts[1])...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("role_id"), idParts[2])...)
+}
+
+type kindeOrganizationUserRole struct {
+	ID   string `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+}
+
+func organizationUserRolesPath(orgCode, userID string) string {
+	return fmt.Sprintf("/api/v1/organizations/%s/users/%s/roles", url.PathEscape(orgCode), url.PathEscape(userID))
+}
+
+func getOrganizationUserRoles(ctx context.Context, client *ManagementAPI, orgCode, userID string) ([]kindeOrganizationUserRole, error) {
+	var response struct {
+		Roles []kindeOrganizationUserRole `json:"roles"`
+	}
+	if err := client.getJSON(ctx, organizationUserRolesPath(orgCode, userID), &response); err != nil {
+		return nil, err
+	}
+	if response.Roles == nil {
+		response.Roles = make([]kindeOrganizationUserRole, 0)
+	}
+	return response.Roles, nil
+}
+
+func addOrganizationUserRole(ctx context.Context, client *ManagementAPI, orgCode, userID, roleID string) error {
+	return client.doJSON(ctx, http.MethodPost, organizationUserRolesPath(orgCode, userID), map[string]string{"role_id": roleID}, nil)
+}
+
+func removeOrganizationUserRole(ctx context.Context, client *ManagementAPI, orgCode, userID, roleID string) error {
+	res, err := client.DeleteOrganizationUserRole(ctx, management_api.DeleteOrganizationUserRoleParams{
+		OrgCode: orgCode,
+		UserID:  userID,
+		RoleID:  roleID,
+	})
+	_, err = expectResponse[management_api.SuccessResponse]("remove organization user role", res, err)
+	return err
 }

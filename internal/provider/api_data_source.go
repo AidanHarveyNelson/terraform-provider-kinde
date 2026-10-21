@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/nxt-fwd/kinde-go/api/apis"
 )
 
 var _ datasource.DataSource = (*APIDataSource)(nil)
@@ -20,7 +19,7 @@ func NewAPIDataSource() datasource.DataSource {
 }
 
 type APIDataSource struct {
-	client *apis.Client
+	client *ManagementAPI
 }
 
 func (d *APIDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -53,7 +52,7 @@ func (d *APIDataSource) Configure(ctx context.Context, req datasource.ConfigureR
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Data Source Configure Type",
@@ -62,7 +61,13 @@ func (d *APIDataSource) Configure(ctx context.Context, req datasource.ConfigureR
 		return
 	}
 
-	d.client = client.APIs
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	d.client = client
 }
 
 func (d *APIDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -75,7 +80,7 @@ func (d *APIDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 
 	tflog.Debug(ctx, "Reading API", map[string]any{"id": resource.ID})
 
-	resource, err := d.client.Get(ctx, resource.ID)
+	resource, err := getKindeAPI(ctx, d.client, resource.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to get API", err.Error())
 		return

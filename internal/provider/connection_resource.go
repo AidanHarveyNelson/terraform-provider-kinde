@@ -6,6 +6,8 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -14,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/connections"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -27,7 +29,7 @@ func NewConnectionResource() resource.Resource {
 }
 
 type ConnectionResource struct {
-	client *connections.Client
+	client *ManagementAPI
 }
 
 // ConnectionOptionsModel represents OAuth2 connection options.
@@ -63,12 +65,12 @@ func (m *ConnectionOptionsModel) Validate() error {
 }
 
 // ToAPIOptions converts the model to API options.
-func (m *ConnectionOptionsModel) ToAPIOptions() connections.SocialConnectionOptions {
+func (m *ConnectionOptionsModel) ToAPIOptions() socialConnectionOptions {
 	if m == nil {
-		return connections.SocialConnectionOptions{}
+		return socialConnectionOptions{}
 	}
 
-	opts := connections.SocialConnectionOptions{}
+	opts := socialConnectionOptions{}
 	if !m.ClientID.IsNull() {
 		opts.ClientID = m.ClientID.ValueString()
 	}
@@ -186,7 +188,7 @@ func (r *ConnectionResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -195,7 +197,13 @@ func (r *ConnectionResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	r.client = client.Connections
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *ConnectionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -221,14 +229,14 @@ func (r *ConnectionResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	// Create connection
-	createParams := connections.CreateParams{
+	createParams := connectionCreateParams{
 		Name:        plan.Name.ValueString(),
 		DisplayName: plan.DisplayName.ValueString(),
-		Strategy:    connections.Strategy(plan.Strategy.ValueString()),
+		Strategy:    plan.Strategy.ValueString(),
 		Options:     options,
 	}
 
-	conn, err := r.client.Create(ctx, createParams)
+	conn, err := r.createConnection(ctx, createParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Connection",
@@ -254,7 +262,7 @@ func (r *ConnectionResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	conn, err := r.client.Get(ctx, state.ID.ValueString())
+	conn, err := r.getConnection(ctx, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -303,13 +311,13 @@ func (r *ConnectionResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	// Update connection
-	updateParams := connections.UpdateParams{
+	updateParams := connectionUpdateParams{
 		Name:        plan.Name.ValueString(),
 		DisplayName: plan.DisplayName.ValueString(),
 		Options:     options,
 	}
 
-	_, err := r.client.Update(ctx, plan.ID.ValueString(), updateParams)
+	_, err := r.updateConnection(ctx, plan.ID.ValueString(), updateParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Updating Connection",
@@ -332,7 +340,7 @@ func (r *ConnectionResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	err := r.client.Delete(ctx, state.ID.ValueString())
+	err := r.deleteConnection(ctx, state.ID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			return
@@ -363,23 +371,23 @@ func (r *ConnectionResource) convertOptionsToMap(strategy string, options *Conne
 		return map[string]interface{}{}, nil
 	}
 
-	switch connections.Strategy(strategy) {
-	case connections.StrategyOAuth2Apple,
-		connections.StrategyOAuth2AzureAD,
-		connections.StrategyOAuth2Bitbucket,
-		connections.StrategyOAuth2Discord,
-		connections.StrategyOAuth2Facebook,
-		connections.StrategyOAuth2Github,
-		connections.StrategyOAuth2Gitlab,
-		connections.StrategyOAuth2Google,
-		connections.StrategyOAuth2LinkedIn,
-		connections.StrategyOAuth2Microsoft,
-		connections.StrategyOAuth2Patreon,
-		connections.StrategyOAuth2Slack,
-		connections.StrategyOAuth2Stripe,
-		connections.StrategyOAuth2Twitch,
-		connections.StrategyOAuth2Twitter,
-		connections.StrategyOAuth2Xero:
+	switch strategy {
+	case strategyOAuth2Apple,
+		strategyOAuth2AzureAD,
+		strategyOAuth2Bitbucket,
+		strategyOAuth2Discord,
+		strategyOAuth2Facebook,
+		strategyOAuth2Github,
+		strategyOAuth2Gitlab,
+		strategyOAuth2Google,
+		strategyOAuth2LinkedIn,
+		strategyOAuth2Microsoft,
+		strategyOAuth2Patreon,
+		strategyOAuth2Slack,
+		strategyOAuth2Stripe,
+		strategyOAuth2Twitch,
+		strategyOAuth2Twitter,
+		strategyOAuth2Xero:
 		return options.ToAPIOptions(), nil
 
 	default:
@@ -396,8 +404,8 @@ func (r *ConnectionResource) ValidateConfig(ctx context.Context, req resource.Va
 
 	// Validate strategy
 	if !data.Strategy.IsNull() {
-		strategy := connections.Strategy(data.Strategy.ValueString())
-		if strings.HasPrefix(string(strategy), "oauth2:") {
+		strategy := data.Strategy.ValueString()
+		if strings.HasPrefix(strategy, "oauth2:") {
 			if data.Options == nil {
 				resp.Diagnostics.AddError(
 					"Missing OAuth2 Options",
@@ -427,4 +435,88 @@ func (r *ConnectionResource) ValidateConfig(ctx context.Context, req resource.Va
 			}
 		}
 	}
+}
+
+const (
+	strategyOAuth2Apple     = "oauth2:apple"
+	strategyOAuth2AzureAD   = "oauth2:azure_ad"
+	strategyOAuth2Bitbucket = "oauth2:bitbucket"
+	strategyOAuth2Discord   = "oauth2:discord"
+	strategyOAuth2Facebook  = "oauth2:facebook"
+	strategyOAuth2Github    = "oauth2:github"
+	strategyOAuth2Gitlab    = "oauth2:gitlab"
+	strategyOAuth2Google    = "oauth2:google"
+	strategyOAuth2LinkedIn  = "oauth2:linkedin"
+	strategyOAuth2Microsoft = "oauth2:microsoft"
+	strategyOAuth2Patreon   = "oauth2:patreon"
+	strategyOAuth2Slack     = "oauth2:slack"
+	strategyOAuth2Stripe    = "oauth2:stripe"
+	strategyOAuth2Twitch    = "oauth2:twitch"
+	strategyOAuth2Twitter   = "oauth2:twitter"
+	strategyOAuth2Xero      = "oauth2:xero"
+)
+
+type socialConnectionOptions struct {
+	ClientID          string `json:"client_id"`
+	ClientSecret      string `json:"client_secret"`
+	IsUseCustomDomain bool   `json:"is_use_custom_domain"`
+}
+
+type kindeConnection struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Strategy    string `json:"strategy"`
+}
+
+type connectionCreateParams struct {
+	Name                string      `json:"name"`
+	DisplayName         string      `json:"display_name"`
+	Strategy            string      `json:"strategy"`
+	EnabledApplications []string    `json:"enabled_applications,omitempty"`
+	Options             interface{} `json:"options,omitempty"`
+}
+
+type connectionUpdateParams struct {
+	Name                string      `json:"name,omitempty"`
+	DisplayName         string      `json:"display_name,omitempty"`
+	EnabledApplications []string    `json:"enabled_applications,omitempty"`
+	Options             interface{} `json:"options,omitempty"`
+}
+
+func connectionPath(id string) string {
+	return "/api/v1/connections/" + url.PathEscape(id)
+}
+
+func (r *ConnectionResource) createConnection(ctx context.Context, params connectionCreateParams) (*kindeConnection, error) {
+	var response struct {
+		Connection kindeConnection `json:"connection"`
+	}
+	if err := r.client.doJSON(ctx, http.MethodPost, "/api/v1/connections", params, &response); err != nil {
+		return nil, err
+	}
+	return &response.Connection, nil
+}
+
+func (r *ConnectionResource) getConnection(ctx context.Context, id string) (*kindeConnection, error) {
+	var response struct {
+		Connection kindeConnection `json:"connection"`
+	}
+	if err := r.client.getJSON(ctx, connectionPath(id), &response); err != nil {
+		return nil, err
+	}
+	return &response.Connection, nil
+}
+
+func (r *ConnectionResource) updateConnection(ctx context.Context, id string, params connectionUpdateParams) (*kindeConnection, error) {
+	if err := r.client.doJSON(ctx, http.MethodPatch, connectionPath(id), params, nil); err != nil {
+		return nil, err
+	}
+	return r.getConnection(ctx, id)
+}
+
+func (r *ConnectionResource) deleteConnection(ctx context.Context, id string) error {
+	res, err := r.client.DeleteConnection(ctx, management_api.DeleteConnectionParams{ConnectionID: id})
+	_, err = expectResponse[management_api.SuccessResponse]("delete connection", res, err)
+	return err
 }
