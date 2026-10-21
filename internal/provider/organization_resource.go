@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -14,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/nxt-fwd/kinde-go/api/organizations"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -27,7 +28,7 @@ func NewOrganizationResource() resource.Resource {
 }
 
 type OrganizationResource struct {
-	client *organizations.Client
+	client *ManagementAPI
 }
 
 type OrganizationResourceModel struct {
@@ -142,7 +143,7 @@ func (r *OrganizationResource) Configure(_ context.Context, req resource.Configu
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -151,7 +152,13 @@ func (r *OrganizationResource) Configure(_ context.Context, req resource.Configu
 		return
 	}
 
-	r.client = client.Organizations
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -162,7 +169,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	createParams := organizations.CreateParams{
+	createParams := kindeOrganizationCreate{
 		Name: plan.Name.ValueString(),
 	}
 
@@ -170,7 +177,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		createParams.Handle = handle
 	}
 
-	organization, err := r.client.Create(ctx, createParams)
+	organization, err := r.createOrganization(ctx, createParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Organization",
@@ -179,13 +186,13 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	// Capture the code up front: on error, r.client.Get/Update return a nil
-	// *Organization, so organization.Code cannot be safely dereferenced from
-	// their result once an error path is taken.
+	// Capture the code up front: on error, getOrganization/updateOrganization
+	// return a nil *kindeOrganization, so organization.Code cannot be safely
+	// dereferenced from their result once an error path is taken.
 	code := organization.Code
 
 	// Get the created organization to ensure we have all fields
-	organization, err = r.client.Get(ctx, code)
+	organization, err = r.getOrganization(ctx, code)
 	if err != nil {
 		if cleanupErr := r.cleanupOrganizationOnCreateFailure(ctx, code); cleanupErr != nil {
 			resp.Diagnostics.AddWarning(
@@ -202,7 +209,7 @@ func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRe
 
 	// Apply optional attributes immediately after creation when requested.
 	if updateParams, needsUpdate := buildOrganizationUpdateParams(plan); needsUpdate {
-		organization, err = r.client.Update(ctx, code, updateParams)
+		organization, err = r.updateOrganization(ctx, code, updateParams)
 		if err != nil {
 			if cleanupErr := r.cleanupOrganizationOnCreateFailure(ctx, code); cleanupErr != nil {
 				resp.Diagnostics.AddWarning(
@@ -233,7 +240,7 @@ func (r *OrganizationResource) cleanupOrganizationOnCreateFailure(ctx context.Co
 		return nil
 	}
 
-	if err := r.client.Delete(ctx, code); err != nil && !isNotFoundError(err) {
+	if err := r.deleteOrganization(ctx, code); err != nil && !isNotFoundError(err) {
 		tflog.Warn(ctx, "Failed to clean up organization after create failure", map[string]interface{}{
 			"code":  code,
 			"error": err.Error(),
@@ -252,7 +259,7 @@ func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	organization, err := r.client.Get(ctx, state.Code.ValueString())
+	organization, err := r.getOrganization(ctx, state.Code.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
@@ -279,7 +286,7 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	updateParams := organizations.UpdateParams{
+	updateParams := kindeOrganizationUpdate{
 		Name:            plan.Name.ValueString(),
 		ExternalID:      plan.ExternalID.ValueString(),
 		BackgroundColor: plan.BackgroundColor.ValueString(),
@@ -290,7 +297,7 @@ func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRe
 		Handle:          plan.Handle.ValueString(),
 	}
 
-	organization, err := r.client.Update(ctx, plan.Code.ValueString(), updateParams)
+	organization, err := r.updateOrganization(ctx, plan.Code.ValueString(), updateParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Updating Organization",
@@ -313,7 +320,7 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 
-	err := r.client.Delete(ctx, state.Code.ValueString())
+	err := r.deleteOrganization(ctx, state.Code.ValueString())
 	if err != nil {
 		if isNotFoundError(err) {
 			return
@@ -328,7 +335,7 @@ func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRe
 
 func (r *OrganizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	// Get the organization by code
-	organization, err := r.client.Get(ctx, req.ID)
+	organization, err := r.getOrganization(ctx, req.ID)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Organization",
@@ -347,8 +354,8 @@ func (r *OrganizationResource) ImportState(ctx context.Context, req resource.Imp
 	resp.Diagnostics.Append(diags...)
 }
 
-func buildOrganizationUpdateParams(plan OrganizationResourceModel) (organizations.UpdateParams, bool) {
-	params := organizations.UpdateParams{
+func buildOrganizationUpdateParams(plan OrganizationResourceModel) (kindeOrganizationUpdate, bool) {
+	params := kindeOrganizationUpdate{
 		Name: plan.Name.ValueString(),
 	}
 
@@ -386,7 +393,7 @@ func buildOrganizationUpdateParams(plan OrganizationResourceModel) (organization
 	return params, needsUpdate
 }
 
-func mapOrganizationToState(org *organizations.Organization, model *OrganizationResourceModel, fallbackHandle string) {
+func mapOrganizationToState(org *kindeOrganization, model *OrganizationResourceModel, fallbackHandle string) {
 	model.ID = types.StringValue(org.Code)
 	model.Code = types.StringValue(org.Code)
 	model.Name = types.StringValue(org.Name)
@@ -437,4 +444,99 @@ func stringValueIfSet(value types.String) (string, bool) {
 		return "", false
 	}
 	return value.ValueString(), true
+}
+
+type kindeColor struct {
+	Raw string `json:"raw"`
+	Hex string `json:"hex"`
+	Hsl string `json:"hsl"`
+}
+
+type kindeOrganization struct {
+	Code            string      `json:"code"`
+	Name            string      `json:"name"`
+	Handle          *string     `json:"handle,omitempty"`
+	CreatedOn       time.Time   `json:"created_on,omitempty"`
+	LinkColor       *kindeColor `json:"link_color,omitempty"`
+	ExternalID      *string     `json:"external_id,omitempty"`
+	ButtonColor     *kindeColor `json:"button_color,omitempty"`
+	ColorScheme     string      `json:"color_scheme"`
+	BackgroundColor *kindeColor `json:"background_color,omitempty"`
+	ButtonTextColor *kindeColor `json:"button_text_color,omitempty"`
+}
+
+type kindeOrganizationCreate struct {
+	Name   string
+	Handle string
+}
+
+type kindeOrganizationUpdate struct {
+	Name            string
+	ExternalID      string
+	BackgroundColor string
+	ButtonColor     string
+	ButtonTextColor string
+	LinkColor       string
+	ThemeCode       string
+	Handle          string
+}
+
+func optStringIfSet(value string) management_api.OptString {
+	if value == "" {
+		return management_api.OptString{}
+	}
+	return management_api.NewOptString(value)
+}
+
+func (r *OrganizationResource) createOrganization(ctx context.Context, params kindeOrganizationCreate) (*kindeOrganization, error) {
+	res, err := r.client.CreateOrganization(ctx, &management_api.CreateOrganizationReq{
+		Name:   params.Name,
+		Handle: optStringIfSet(params.Handle),
+	})
+	response, err := expectResponse[management_api.CreateOrganizationResponse]("create organization", res, err)
+	if err != nil {
+		return nil, err
+	}
+
+	created := response.Organization.Or(management_api.CreateOrganizationResponseOrganization{})
+	return &kindeOrganization{Code: created.Code.Or("")}, nil
+}
+
+func (r *OrganizationResource) getOrganization(ctx context.Context, code string) (*kindeOrganization, error) {
+	var organization kindeOrganization
+	if err := r.client.getJSON(ctx, "/api/v1/organization?code="+url.QueryEscape(code), &organization); err != nil {
+		return nil, err
+	}
+	return &organization, nil
+}
+
+func (r *OrganizationResource) updateOrganization(ctx context.Context, code string, params kindeOrganizationUpdate) (*kindeOrganization, error) {
+	req := management_api.UpdateOrganizationReq{
+		Name:            optStringIfSet(params.Name),
+		ExternalID:      optStringIfSet(params.ExternalID),
+		BackgroundColor: optStringIfSet(params.BackgroundColor),
+		ButtonColor:     optStringIfSet(params.ButtonColor),
+		ButtonTextColor: optStringIfSet(params.ButtonTextColor),
+		LinkColor:       optStringIfSet(params.LinkColor),
+		Handle:          optStringIfSet(params.Handle),
+	}
+	if params.ThemeCode != "" {
+		req.ThemeCode = management_api.NewOptUpdateOrganizationReqThemeCode(management_api.UpdateOrganizationReqThemeCode(params.ThemeCode))
+	}
+
+	res, err := r.client.UpdateOrganization(ctx,
+		management_api.NewOptUpdateOrganizationReq(req),
+		management_api.UpdateOrganizationParams{OrgCode: code},
+	)
+	if _, err := expectResponse[management_api.SuccessResponse]("update organization", res, err); err != nil {
+		return nil, err
+	}
+
+	return r.getOrganization(ctx, code)
+}
+
+func (r *OrganizationResource) deleteOrganization(ctx context.Context, code string) error {
+	res, err := r.client.DeleteOrganization(ctx, management_api.DeleteOrganizationParams{OrgCode: code})
+	_, err = expectResponse[management_api.SuccessResponse]("delete organization", res, err)
+	return err
 }

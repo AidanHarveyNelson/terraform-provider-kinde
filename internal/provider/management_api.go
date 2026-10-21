@@ -152,13 +152,14 @@ func (e *managementRequestError) Error() string {
 }
 
 var responseStatusSuffixes = map[string]int{
-	"BadRequest":      http.StatusBadRequest,
-	"Unauthorized":    http.StatusUnauthorized,
-	"Forbidden":       http.StatusForbidden,
-	"NotFound":        http.StatusNotFound,
-	"Conflict":        http.StatusConflict,
-	"TooManyRequests": http.StatusTooManyRequests,
-	"ErrorResponse":   http.StatusBadRequest,
+	"BadRequest":       http.StatusBadRequest,
+	"Unauthorized":     http.StatusUnauthorized,
+	"Forbidden":        http.StatusForbidden,
+	"NotFound":         http.StatusNotFound,
+	"NotFoundResponse": http.StatusNotFound,
+	"Conflict":         http.StatusConflict,
+	"TooManyRequests":  http.StatusTooManyRequests,
+	"ErrorResponse":    http.StatusBadRequest,
 }
 
 func responseStatusCode(res any) int {
