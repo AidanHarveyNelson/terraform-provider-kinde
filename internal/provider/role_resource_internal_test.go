@@ -7,34 +7,23 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"sync"
 	"testing"
-
-	"github.com/nxt-fwd/kinde-go"
 )
 
 // TestGetRoleUsesAllPermissionPages proves that RoleResource.getRole follows
-// next_token when reading a role's permissions, instead of relying on the
-// kinde-go SDK's roles.Client.Get, which only reads a single, non-paginated
-// page of /api/v1/roles/{id}/permissions and silently truncates roles with
-// more permissions than fit on one page.
+// next_token when reading a role's permissions, so roles with more
+// permissions than fit on one page of /api/v1/roles/{id}/permissions are not
+// silently truncated.
 func TestGetRoleUsesAllPermissionPages(t *testing.T) {
 	ctx := context.Background()
+	var mu sync.Mutex
 	var permissionRequests []string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		switch r.URL.Path {
-		case "/oauth2/token":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token": "test-token",
-				"expires_in":   3600,
-				"token_type":   "bearer",
-			})
-		case "/api/v1/roles/role_1":
+	client := newTestManagementAPI(t, map[string]http.HandlerFunc{
+		"/api/v1/roles/role_1": func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"role": map[string]any{
 					"id":          "role_1",
@@ -43,8 +32,11 @@ func TestGetRoleUsesAllPermissionPages(t *testing.T) {
 					"description": "Role description",
 				},
 			})
-		case "/api/v1/roles/role_1/permissions":
+		},
+		"/api/v1/roles/role_1/permissions": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
 			permissionRequests = append(permissionRequests, r.URL.RawQuery)
+			mu.Unlock()
 			if r.URL.Query().Get("next_token") == "" {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"next_token": "page-2",
@@ -69,19 +61,10 @@ func TestGetRoleUsesAllPermissionPages(t *testing.T) {
 					{"id": "perm_11"},
 				},
 			})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
+		},
+	})
 
-	client := kinde.New(ctx, kinde.NewClientOptions().
-		WithDomain(server.URL).
-		WithAudience("audience").
-		WithClientID("client-id").
-		WithClientSecret("client-secret"))
-
-	roleResource := RoleResource{client: client.Roles}
+	roleResource := RoleResource{client: client}
 	role, err := roleResource.getRole(ctx, "role_1")
 	if err != nil {
 		t.Fatalf("get role: %s", err)

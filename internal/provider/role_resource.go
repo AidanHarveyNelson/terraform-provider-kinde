@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -19,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-	"github.com/nxt-fwd/kinde-go/api/roles"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -32,14 +31,7 @@ func NewRoleResource() resource.Resource {
 }
 
 type RoleResource struct {
-	client *roles.Client
-}
-
-type rolePermissionsPage struct {
-	Code        string             `json:"code"`
-	Message     string             `json:"message"`
-	NextToken   string             `json:"next_token"`
-	Permissions []roles.Permission `json:"permissions"`
+	client *ManagementAPI
 }
 
 type nonEmptyStringSetValidator struct{}
@@ -118,7 +110,7 @@ func (r *RoleResource) Configure(_ context.Context, req resource.ConfigureReques
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -127,7 +119,13 @@ func (r *RoleResource) Configure(_ context.Context, req resource.ConfigureReques
 		return
 	}
 
-	r.client = client.Roles
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func diffPermissions(desired, current []string) ([]string, []string) {
@@ -171,7 +169,7 @@ func (r *RoleResource) Create(ctx context.Context, req resource.CreateRequest, r
 
 	// Create role with basic details first
 	createParams := expandRoleCreateParams(plan)
-	role, err := r.client.Create(ctx, createParams)
+	role, err := r.createRole(ctx, createParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Role",
@@ -209,18 +207,14 @@ func (r *RoleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		// Normalize permissions for consistent ordering and to drop invalid empty IDs.
 		sorted := normalizeRolePermissions(permissions)
 
-		permissionItems := make([]roles.UpdatePermissionItem, len(sorted))
+		permissionItems := make([]kindeRolePermissionUpdate, len(sorted))
 		for i, p := range sorted {
-			permissionItems[i] = roles.UpdatePermissionItem{
+			permissionItems[i] = kindeRolePermissionUpdate{
 				ID: p,
 			}
 		}
 
-		updatePermParams := roles.UpdatePermissionsParams{
-			Permissions: permissionItems,
-		}
-
-		_, err = r.client.UpdatePermissions(ctx, createdRoleID, updatePermParams)
+		err = r.updateRolePermissions(ctx, createdRoleID, permissionItems)
 		if err != nil {
 			if cleanupErr := r.cleanupRoleOnCreateFailure(ctx, createdRoleID); cleanupErr != nil {
 				resp.Diagnostics.AddWarning(
@@ -270,7 +264,7 @@ func (r *RoleResource) cleanupRoleOnCreateFailure(ctx context.Context, roleID st
 		return nil
 	}
 
-	if err := r.client.Delete(ctx, roleID); err != nil && !isNotFoundError(err) {
+	if err := r.deleteRole(ctx, roleID); err != nil && !isNotFoundError(err) {
 		return err
 	}
 
@@ -329,8 +323,11 @@ func (r *RoleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 
 	// First update role details
 	updateParams := expandRoleUpdateParams(plan)
-	_, err := r.client.Update(ctx, plan.ID.ValueString(), updateParams)
-	if err != nil {
+	res, err := r.client.UpdateRoles(ctx,
+		management_api.NewOptUpdateRolesReq(updateParams),
+		management_api.UpdateRolesParams{RoleID: plan.ID.ValueString()},
+	)
+	if _, err = expectResponse[management_api.SuccessResponse]("update role", res, err); err != nil {
 		resp.Diagnostics.AddError(
 			"Error Updating Role",
 			fmt.Sprintf("Could not update role ID %s: %s", plan.ID.ValueString(), err),
@@ -362,7 +359,7 @@ func (r *RoleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 
 	// First remove permissions that are in state but not in plan.
 	for _, statePerm := range permsToRemove {
-		err = r.client.RemovePermission(ctx, plan.ID.ValueString(), statePerm)
+		err = r.removeRolePermission(ctx, plan.ID.ValueString(), statePerm)
 		if err != nil {
 			if containsAnyErrorCode(err, "INVALID_PERMISSION_ID", "INVALID_PERMISSION_ID_ROLE") {
 				continue
@@ -376,16 +373,12 @@ func (r *RoleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	if len(permsToAdd) > 0 {
-		permissionItems := make([]roles.UpdatePermissionItem, len(permsToAdd))
+		permissionItems := make([]kindeRolePermissionUpdate, len(permsToAdd))
 		for i, permission := range permsToAdd {
-			permissionItems[i] = roles.UpdatePermissionItem{ID: permission}
+			permissionItems[i] = kindeRolePermissionUpdate{ID: permission}
 		}
 
-		updatePermParams := roles.UpdatePermissionsParams{
-			Permissions: permissionItems,
-		}
-
-		_, err = r.client.UpdatePermissions(ctx, plan.ID.ValueString(), updatePermParams)
+		err = r.updateRolePermissions(ctx, plan.ID.ValueString(), permissionItems)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error Adding Permissions",
@@ -427,7 +420,7 @@ func (r *RoleResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 		return
 	}
 
-	if err := r.client.Delete(ctx, state.ID.ValueString()); err != nil {
+	if err := r.deleteRole(ctx, state.ID.ValueString()); err != nil {
 		if isNotFoundError(err) {
 			return
 		}
@@ -465,26 +458,14 @@ func (r *RoleResource) ImportState(ctx context.Context, req resource.ImportState
 	}
 }
 
-// getRole reads a role's core fields and fully paginated permission list.
-//
-// The kinde-go SDK's roles.Client.Get makes a single, non-paginated request
-// to /api/v1/roles/{id}/permissions, silently truncating roles that have
-// more permissions than fit on one page. This bypasses that by fetching the
-// role's core fields directly and separately walking every permissions page
-// via the shared getAllPages helper.
-func (r *RoleResource) getRole(ctx context.Context, id string) (*roles.Role, error) {
-	endpoint := fmt.Sprintf("/api/v1/roles/%s", url.PathEscape(id))
-	req, err := r.client.NewRequest(ctx, http.MethodGet, endpoint, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
+// getRole reads a role's core fields and fully paginated permission list,
+// walking every permissions page via the shared getAllPages helper so roles
+// with more permissions than fit on one page are not silently truncated.
+func (r *RoleResource) getRole(ctx context.Context, id string) (*kindeRole, error) {
 	var response struct {
-		Code    string     `json:"code"`
-		Message string     `json:"message"`
-		Role    roles.Role `json:"role"`
+		Role kindeRole `json:"role"`
 	}
-	if err := r.client.DoRequest(req, &response); err != nil {
+	if err := r.client.getJSON(ctx, "/api/v1/roles/"+url.PathEscape(id), &response); err != nil {
 		return nil, err
 	}
 
@@ -499,17 +480,12 @@ func (r *RoleResource) getRole(ctx context.Context, id string) (*roles.Role, err
 
 func (r *RoleResource) getRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	endpoint := fmt.Sprintf("/api/v1/roles/%s/permissions", url.PathEscape(roleID))
-	permissions, err := getAllPages(ctx, func(ctx context.Context, nextToken string) ([]roles.Permission, string, error) {
-		query := url.Values{"page_size": {strconv.Itoa(defaultPageSize)}}
-		if nextToken != "" {
-			query.Set("next_token", nextToken)
+	permissions, err := getAllPages(ctx, func(ctx context.Context, nextToken string) ([]kindeRolePermission, string, error) {
+		var page struct {
+			NextToken   string                `json:"next_token"`
+			Permissions []kindeRolePermission `json:"permissions"`
 		}
-		req, err := r.client.NewRequest(ctx, http.MethodGet, endpoint, query, nil)
-		if err != nil {
-			return nil, "", err
-		}
-		var page rolePermissionsPage
-		if err := r.client.DoRequest(req, &page); err != nil {
+		if err := r.client.getJSON(ctx, pagedPath(endpoint, nextToken), &page); err != nil {
 			return nil, "", err
 		}
 		return page.Permissions, page.NextToken, nil
@@ -524,4 +500,30 @@ func (r *RoleResource) getRolePermissions(ctx context.Context, roleID string) ([
 	}
 
 	return permissionIDs, nil
+}
+
+func (r *RoleResource) createRole(ctx context.Context, params management_api.CreateRoleReq) (*kindeRole, error) {
+	res, err := r.client.CreateRole(ctx, management_api.NewOptCreateRoleReq(params))
+	response, err := expectResponse[management_api.CreateRolesResponse]("create role", res, err)
+	if err != nil {
+		return nil, err
+	}
+	return &kindeRole{ID: response.Role.Or(management_api.CreateRolesResponseRole{}).ID.Or("")}, nil
+}
+
+func (r *RoleResource) deleteRole(ctx context.Context, roleID string) error {
+	res, err := r.client.DeleteRole(ctx, management_api.DeleteRoleParams{RoleID: roleID})
+	_, err = expectResponse[management_api.SuccessResponse]("delete role", res, err)
+	return err
+}
+
+func (r *RoleResource) updateRolePermissions(ctx context.Context, roleID string, permissions []kindeRolePermissionUpdate) error {
+	payload := struct {
+		Permissions []kindeRolePermissionUpdate `json:"permissions"`
+	}{Permissions: permissions}
+	return r.client.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/api/v1/roles/%s/permissions", url.PathEscape(roleID)), payload, nil)
+}
+
+func (r *RoleResource) removeRolePermission(ctx context.Context, roleID, permissionID string) error {
+	return r.client.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/api/v1/roles/%s/permissions/%s", url.PathEscape(roleID), url.PathEscape(permissionID)), nil, nil)
 }

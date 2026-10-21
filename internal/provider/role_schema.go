@@ -10,9 +10,30 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 	"github.com/kinde-oss/terraform-provider-kinde/internal/serde"
-	"github.com/nxt-fwd/kinde-go/api/roles"
 )
+
+type kindeRole struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Key           string   `json:"key"`
+	Description   string   `json:"description,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+	IsDefaultRole bool     `json:"is_default_role"`
+}
+
+type kindeRolePermission struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Key         string `json:"key"`
+}
+
+type kindeRolePermissionUpdate struct {
+	ID        string `json:"id"`
+	Operation string `json:"operation,omitempty"`
+}
 
 type RoleResourceModel struct {
 	ID          types.String `tfsdk:"id"`
@@ -23,8 +44,8 @@ type RoleResourceModel struct {
 }
 
 //nolint:unused
-func expandRoleResourceModel(data RoleResourceModel) roles.Role {
-	return roles.Role{
+func expandRoleResourceModel(data RoleResourceModel) kindeRole {
+	return kindeRole{
 		ID:          data.ID.ValueString(),
 		Name:        data.Name.ValueString(),
 		Key:         data.Key.ValueString(),
@@ -32,19 +53,19 @@ func expandRoleResourceModel(data RoleResourceModel) roles.Role {
 	}
 }
 
-func expandRoleCreateParams(plan RoleResourceModel) roles.CreateParams {
-	return roles.CreateParams{
-		Name:        plan.Name.ValueString(),
-		Key:         plan.Key.ValueString(),
-		Description: plan.Description.ValueString(),
+func expandRoleCreateParams(plan RoleResourceModel) management_api.CreateRoleReq {
+	return management_api.CreateRoleReq{
+		Name:        management_api.NewOptString(plan.Name.ValueString()),
+		Key:         management_api.NewOptString(plan.Key.ValueString()),
+		Description: optStringIfSet(plan.Description.ValueString()),
 	}
 }
 
-func expandRoleUpdateParams(plan RoleResourceModel) roles.UpdateParams {
-	return roles.UpdateParams{
+func expandRoleUpdateParams(plan RoleResourceModel) management_api.UpdateRolesReq {
+	return management_api.UpdateRolesReq{
 		Name:        plan.Name.ValueString(),
 		Key:         plan.Key.ValueString(),
-		Description: plan.Description.ValueString(),
+		Description: optStringIfSet(plan.Description.ValueString()),
 	}
 }
 
@@ -75,7 +96,7 @@ func normalizeRolePermissions(permissions []string) []string {
 	return normalized
 }
 
-func flattenRoleResource(ctx context.Context, role *roles.Role, permissions []string) (RoleResourceModel, error) {
+func flattenRoleResource(ctx context.Context, role *kindeRole, permissions []string) (RoleResourceModel, error) {
 	permissions = normalizeRolePermissions(permissions)
 
 	var permissionsSet types.Set
@@ -107,8 +128,8 @@ type RoleDataSourceModel struct {
 }
 
 //nolint:unused
-func expandRoleDataSourceModel(model RoleDataSourceModel) *roles.Role {
-	return &roles.Role{
+func expandRoleDataSourceModel(model RoleDataSourceModel) *kindeRole {
+	return &kindeRole{
 		ID:          model.ID.ValueString(),
 		Name:        model.Name.ValueString(),
 		Key:         model.Key.ValueString(),
@@ -117,7 +138,7 @@ func expandRoleDataSourceModel(model RoleDataSourceModel) *roles.Role {
 }
 
 //nolint:unused
-func flattenRoleDataSource(ctx context.Context, resource *roles.Role, permissions []string) (RoleDataSourceModel, error) {
+func flattenRoleDataSource(ctx context.Context, resource *kindeRole, permissions []string) (RoleDataSourceModel, error) {
 	permissionsList, diags := serde.FlattenStringList(ctx, normalizeRolePermissions(permissions))
 	if diags.HasError() {
 		return RoleDataSourceModel{}, fmt.Errorf("failed to flatten permissions: %v", diags)

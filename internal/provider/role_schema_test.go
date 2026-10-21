@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/roles"
 )
 
 func TestNormalizeRolePermissions(t *testing.T) {
@@ -30,7 +29,7 @@ func TestNormalizeRolePermissions(t *testing.T) {
 }
 
 func TestFlattenRoleResourceFiltersEmptyPermissions(t *testing.T) {
-	state, err := flattenRoleResource(context.Background(), &roles.Role{
+	state, err := flattenRoleResource(context.Background(), &kindeRole{
 		ID:          "role-id",
 		Name:        "role-name",
 		Key:         "role-key",
@@ -46,7 +45,7 @@ func TestFlattenRoleResourceFiltersEmptyPermissions(t *testing.T) {
 }
 
 func TestFlattenRoleResourceNormalizesPermissions(t *testing.T) {
-	state, err := flattenRoleResource(context.Background(), &roles.Role{
+	state, err := flattenRoleResource(context.Background(), &kindeRole{
 		ID:          "role-id",
 		Name:        "role-name",
 		Key:         "role-key",
@@ -75,7 +74,7 @@ func TestFlattenRoleResourceNormalizesPermissions(t *testing.T) {
 }
 
 func TestFlattenRoleResourceKeepsPermissionsType(t *testing.T) {
-	state, err := flattenRoleResource(context.Background(), &roles.Role{
+	state, err := flattenRoleResource(context.Background(), &kindeRole{
 		ID:          "role-id",
 		Name:        "role-name",
 		Key:         "role-key",
