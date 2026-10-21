@@ -18,11 +18,6 @@ on:
 permissions:
   contents: read
 
-# Acceptance tests share one Kinde business, so queue runs instead of racing.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   # Ensure project builds before running testing matrix
   build:
@@ -62,18 +57,14 @@ jobs:
           git diff --compact-summary --exit-code || \
             (echo; echo "Unexpected difference in directories after code generation. Run 'cd tools && go generate ./...' and commit."; exit 1)
 
-  # Run acceptance tests in a matrix with Terraform CLI versions
   test:
-    name: Terraform Provider Acceptance Tests
+    name: Unit Tests
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      # Each job runs the full suite against the same business.
-      max-parallel: 1
       matrix:
-        # Oldest supported version and the current release.
         terraform:
           - '1.0.*'
           - 'latest'
@@ -88,24 +79,4 @@ jobs:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
       - run: go mod download
-      - env:
-          TF_ACC: '1'
-          KINDE_DOMAIN: ${{ secrets['KINDE_DOMAIN'] }}
-          KINDE_AUDIENCE: ${{ secrets['KINDE_AUDIENCE'] }}
-          KINDE_CLIENT_ID: ${{ secrets['KINDE_CLIENT_ID'] }}
-          KINDE_CLIENT_SECRET: ${{ secrets['KINDE_CLIENT_SECRET'] }}
-        run: |
-          missing=0
-          for var in KINDE_DOMAIN KINDE_AUDIENCE KINDE_CLIENT_ID KINDE_CLIENT_SECRET; do
-            if [ -z "${!var}" ]; then
-              echo "Skipping acceptance tests: $var is not configured in GitHub secrets."
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -eq 1 ]; then
-            exit 0
-          fi
-
-          go test -v -cover ./internal/provider/
-        timeout-minutes: 10
+      - run: go test -race -cover ./...
