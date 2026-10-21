@@ -701,7 +701,6 @@ func (f *fakeKinde) registerRoutes() {
 		if body.IsSuspended != nil {
 			user.IsSuspended = *body.IsSuspended
 		}
-		user.UpdatedOn = fakeTimestamp()
 		fakeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "given_name": user.FirstName, "family_name": user.LastName})
 	})
 	f.route(http.MethodDelete, "/api/v1/user", func(w http.ResponseWriter, r *http.Request, _ []string) {

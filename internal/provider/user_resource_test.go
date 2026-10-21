@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"regexp"
@@ -86,6 +87,7 @@ func TestAccUserResource_ComplexAttributes(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckKindeUsersDestroyed,
 		Steps: []resource.TestStep{
 			// Create a user with email and username identities, is_suspended=false
 			{
@@ -104,6 +106,7 @@ func TestAccUserResource_ComplexAttributes(t *testing.T) {
 						"type":  "username",
 						"value": username,
 					}),
+					testAccCheckKindeUser("kinde_user.complex", "Complex", "User", false, "email:"+email, "username:"+username),
 				),
 			},
 			// Update is_suspended to true and add another email identity
@@ -127,6 +130,7 @@ func TestAccUserResource_ComplexAttributes(t *testing.T) {
 						"type":  "email",
 						"value": altEmail,
 					}),
+					testAccCheckKindeUser("kinde_user.complex", "Complex", "User", true, "email:"+email, "email:"+altEmail, "username:"+username),
 				),
 			},
 			// Remove the extra email identity and unsuspend the user
@@ -145,6 +149,7 @@ func TestAccUserResource_ComplexAttributes(t *testing.T) {
 						"type":  "username",
 						"value": username,
 					}),
+					testAccCheckKindeUser("kinde_user.complex", "Complex", "User", false, "email:"+email, "username:"+username),
 				),
 			},
 		},
@@ -207,6 +212,7 @@ func TestAccUserResource_PhoneIdentity(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckKindeUsersDestroyed,
 		Steps: []resource.TestStep{
 			// Create a user with email and phone identities
 			{
@@ -224,6 +230,7 @@ func TestAccUserResource_PhoneIdentity(t *testing.T) {
 						"type":  "phone",
 						"value": phone,
 					}),
+					testAccCheckKindeUser("kinde_user.phone", "Phone", "User", false, "email:"+email, "phone:"+phone),
 				),
 			},
 			// Update to add another phone identity
@@ -244,6 +251,7 @@ func TestAccUserResource_PhoneIdentity(t *testing.T) {
 						"type":  "phone",
 						"value": phone2,
 					}),
+					testAccCheckKindeUser("kinde_user.phone", "Phone", "User", false, "email:"+email, "phone:"+phone, "phone:"+phone2),
 				),
 			},
 		},
@@ -388,10 +396,12 @@ resource "kinde_user" "oauth2" {
 func TestAccUserResource_NameHandling(t *testing.T) {
 	testID := rand.Int()
 	email := fmt.Sprintf("name.test.tfacc-%d@example.com", testID)
+	var userID string
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckKindeUsersDestroyed,
 		Steps: []resource.TestStep{
 			// Create with both names set
 			{
@@ -399,6 +409,7 @@ func TestAccUserResource_NameHandling(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_user.name_test", "first_name", "John"),
 					resource.TestCheckResourceAttr("kinde_user.name_test", "last_name", "Doe"),
+					testAccCheckKindeUser("kinde_user.name_test", "John", "Doe", false, "email:"+email),
 				),
 			},
 			// Update with new values
@@ -407,7 +418,21 @@ func TestAccUserResource_NameHandling(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_user.name_test", "first_name", "Jane"),
 					resource.TestCheckResourceAttr("kinde_user.name_test", "last_name", "Smith"),
+					testAccCheckKindeUser("kinde_user.name_test", "Jane", "Smith", false, "email:"+email),
+					captureAttr("kinde_user.name_test", "id", &userID),
 				),
+			},
+			{
+				PreConfig: testAccDeleteOutsideTerraform(t, "user", func(ctx context.Context, client *ManagementAPI) error {
+					return (&UserResource{client: client}).deleteUser(ctx, userID)
+				}),
+				Config:             testAccUserResourceConfig_Names(email, "Jane", "Smith"),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccUserResourceConfig_Names(email, "Jane", "Smith"),
+				Check:  testAccCheckKindeUser("kinde_user.name_test", "Jane", "Smith", false, "email:"+email),
 			},
 		},
 	})
@@ -582,4 +607,106 @@ resource "kinde_user" "test" {
   ]
 }
 `, firstName, lastName, isSuspended, email, phone)
+}
+
+func testUserOfflineConfig(firstName string, suspended bool, identities ...string) string {
+	var blocks []string
+	for _, identity := range identities {
+		parts := strings.SplitN(identity, ":", 2)
+		blocks = append(blocks, fmt.Sprintf("    { type = %q, value = %q }", parts[0], parts[1]))
+	}
+	return fmt.Sprintf(`
+resource "kinde_user" "test" {
+  first_name   = %[1]q
+  last_name    = "Offline"
+  is_suspended = %[2]t
+  identities = [
+%[3]s
+  ]
+}
+`, firstName, suspended, strings.Join(blocks, ",\n"))
+}
+
+func TestUserResourceOffline(t *testing.T) {
+	fake := newFakeKinde(t)
+	created := testUserOfflineConfig("First", false, "email:first@example.com", "username:first-user", "phone:+61412345678")
+	updated := testUserOfflineConfig("Updated", true, "email:first@example.com", "email:alt@example.com", "phone:+61412345678", "phone:+12025550123")
+	var userID string
+
+	expectUser := func(firstName string, suspended bool, identities ...string) resource.TestCheckFunc {
+		return func(state *terraformState) error {
+			id, err := stateAttr(state, "kinde_user.test", "id")
+			if err != nil {
+				return err
+			}
+			return fake.check(func() error {
+				user, ok := fake.users[id]
+				if !ok {
+					return fmt.Errorf("user %s not found in Kinde", id)
+				}
+				if user.FirstName != firstName || user.LastName != "Offline" || user.IsSuspended != suspended {
+					return fmt.Errorf("unexpected user in Kinde: %+v", *user)
+				}
+				var got []string
+				for _, identity := range fake.identities {
+					if identity.UserID == id {
+						got = append(got, identity.Type+":"+identity.Name)
+					}
+				}
+				want := append([]string{}, identities...)
+				sort.Strings(got)
+				sort.Strings(want)
+				if fmt.Sprint(got) != fmt.Sprint(want) {
+					return fmt.Errorf("unexpected identities in Kinde: %v, want %v", got, want)
+				}
+				return nil
+			})(state)
+		}
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: fake.check(func() error {
+			if _, ok := fake.users[userID]; ok {
+				return fmt.Errorf("user %s still exists", userID)
+			}
+			return nil
+		}),
+		Steps: []resource.TestStep{
+			{
+				Config: created,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("kinde_user.test", "identities.#", "3"),
+					resource.TestCheckResourceAttrSet("kinde_user.test", "created_on"),
+					expectUser("First", false, "email:first@example.com", "username:first-user", "phone:+61412345678"),
+				),
+			},
+			{
+				ResourceName:            "kinde_user.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"is_suspended"},
+			},
+			{
+				Config: updated,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("kinde_user.test", "first_name", "Updated"),
+					resource.TestCheckResourceAttr("kinde_user.test", "is_suspended", "true"),
+					resource.TestCheckResourceAttr("kinde_user.test", "identities.#", "4"),
+					expectUser("Updated", true, "email:first@example.com", "email:alt@example.com", "phone:+61412345678", "phone:+12025550123"),
+					captureAttr("kinde_user.test", "id", &userID),
+				),
+			},
+			offlineNotFoundStep(updated, func() {
+				fake.do(func() { delete(fake.users, userID) })
+			}),
+			{
+				Config: testUserOfflineConfig("Updated", false, "email:first@example.com"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					expectUser("Updated", false, "email:first@example.com"),
+					captureAttr("kinde_user.test", "id", &userID),
+				),
+			},
+		},
+	})
 }

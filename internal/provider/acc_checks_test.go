@@ -366,3 +366,45 @@ func testAccCheckKindeConnectionsDestroyed(state *terraform.State) error {
 		return err == nil, err
 	})(state)
 }
+
+func testAccCheckKindeUser(address, firstName, lastName string, isSuspended bool, identities ...string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		users := &UserResource{client: client}
+		user, err := users.getUser(ctx, rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		if err := expectEqual("user first_name", user.FirstName, firstName); err != nil {
+			return err
+		}
+		if err := expectEqual("user last_name", user.LastName, lastName); err != nil {
+			return err
+		}
+		if err := expectEqual("user is_suspended", fmt.Sprint(user.IsSuspended), fmt.Sprint(isSuspended)); err != nil {
+			return err
+		}
+
+		apiIdentities, err := users.getUserIdentities(ctx, rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		got := []string{}
+		for _, identity := range apiIdentities {
+			got = append(got, identity.Type+":"+identity.Name)
+		}
+		want := append([]string{}, identities...)
+		sort.Strings(got)
+		sort.Strings(want)
+		return expectEqual("user identities", fmt.Sprint(got), fmt.Sprint(want))
+	})
+}
+
+func testAccCheckKindeUsersDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_user", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := (&UserResource{client: client}).getUser(ctx, rs.Primary.ID)
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})(state)
+}
