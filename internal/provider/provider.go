@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 // Ensure KindeProvider satisfies various provider interfaces.
@@ -27,8 +26,6 @@ type KindeProvider struct {
 }
 
 type KindeClients struct {
-	*kinde.Client
-
 	Management    *ManagementAPI
 	managementErr error
 }
@@ -85,35 +82,34 @@ func (p *KindeProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		return
 	}
 
-	opts := kinde.NewClientOptions()
+	config := managementConfigFromEnv()
 
 	if !data.Domain.IsNull() && !data.Domain.IsUnknown() {
 		if domain := strings.TrimSpace(data.Domain.ValueString()); domain != "" {
-			opts.WithDomain(domain)
+			config.Domain = domain
 		}
 	}
 
 	if !data.Audience.IsNull() && !data.Audience.IsUnknown() {
 		if audience := strings.TrimSpace(data.Audience.ValueString()); audience != "" {
-			opts.WithAudience(audience)
+			config.Audience = audience
 		}
 	}
 
 	if !data.ClientID.IsNull() && !data.ClientID.IsUnknown() {
 		if clientID := strings.TrimSpace(data.ClientID.ValueString()); clientID != "" {
-			opts.WithClientID(clientID)
+			config.ClientID = clientID
 		}
 	}
 
 	if !data.ClientSecret.IsNull() && !data.ClientSecret.IsUnknown() {
 		if clientSecret := strings.TrimSpace(data.ClientSecret.ValueString()); clientSecret != "" {
-			opts.WithClientSecret(clientSecret)
+			config.ClientSecret = clientSecret
 		}
 	}
 
-	client := kinde.New(ctx, opts)
-	clients := &KindeClients{Client: &client}
-	clients.Management, clients.managementErr = newManagementClient(ctx, opts)
+	clients := &KindeClients{}
+	clients.Management, clients.managementErr = newManagementClient(ctx, config)
 
 	resp.DataSourceData = clients
 	resp.ResourceData = clients

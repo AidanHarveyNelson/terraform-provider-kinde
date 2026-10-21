@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
 	"github.com/kinde-oss/kinde-go/oauth2/client_credentials"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 type ManagementAPI struct {
@@ -25,21 +25,59 @@ type ManagementAPI struct {
 	baseURL    string
 }
 
-func newManagementClient(ctx context.Context, opts *kinde.ClientOptions) (*ManagementAPI, error) {
-	if err := opts.Validate(); err != nil {
+type managementConfig struct {
+	Domain       string
+	Audience     string
+	ClientID     string
+	ClientSecret string
+	Scopes       string
+}
+
+func managementConfigFromEnv() managementConfig {
+	return managementConfig{
+		Domain:       os.Getenv("KINDE_DOMAIN"),
+		Audience:     os.Getenv("KINDE_AUDIENCE"),
+		ClientID:     os.Getenv("KINDE_CLIENT_ID"),
+		ClientSecret: os.Getenv("KINDE_CLIENT_SECRET"),
+		Scopes:       os.Getenv("KINDE_SCOPES"),
+	}
+}
+
+func (c managementConfig) validate() error {
+	var missing []string
+	if c.Domain == "" {
+		missing = append(missing, "domain")
+	}
+	if c.Audience == "" {
+		missing = append(missing, "audience")
+	}
+	if c.ClientID == "" {
+		missing = append(missing, "client_id")
+	}
+	if c.ClientSecret == "" {
+		missing = append(missing, "client_secret")
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required Kinde client options: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func newManagementClient(ctx context.Context, opts managementConfig) (*ManagementAPI, error) {
+	if err := opts.validate(); err != nil {
 		return nil, err
 	}
 
-	audience := client_credentials.WithKindeManagementAPI(opts.Domain)
-	if opts.Audience != "" {
-		audience = client_credentials.WithAudience(opts.Audience)
+	options := []client_credentials.Option{
+		client_credentials.WithAudience(opts.Audience),
+		client_credentials.WithTokenValidation(true),
+	}
+	if scopes := strings.TrimSpace(opts.Scopes); scopes != "" {
+		options = append(options, client_credentials.WithAuthParameter("scope", scopes))
 	}
 
-	flow, err := client_credentials.NewClientCredentialsFlow(
-		opts.Domain, opts.ClientID, opts.ClientSecret,
-		audience,
-		client_credentials.WithTokenValidation(true),
-	)
+	flow, err := client_credentials.NewClientCredentialsFlow(opts.Domain, opts.ClientID, opts.ClientSecret, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client credentials flow: %w", err)
 	}

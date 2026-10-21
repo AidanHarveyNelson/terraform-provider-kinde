@@ -10,14 +10,13 @@ import (
 	"testing"
 
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 func newTestManagementAPI(t *testing.T, handlers map[string]http.HandlerFunc) *ManagementAPI {
 	t.Helper()
 	newStubManagementServer(t, handlers)
 
-	client, err := newManagementClient(context.Background(), kinde.NewClientOptions())
+	client, err := newManagementClient(context.Background(), managementConfigFromEnv())
 	if err != nil {
 		t.Fatalf("failed to create management client: %s", err)
 	}

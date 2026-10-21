@@ -17,7 +17,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
-	"github.com/nxt-fwd/kinde-go"
 )
 
 func TestAccEnvironmentFeatureFlagsResource(t *testing.T) {
@@ -62,7 +61,7 @@ func testAccCreateFeatureFlag(t *testing.T, key string, flagType management_api.
 	t.Helper()
 	ctx := context.Background()
 
-	client, err := newManagementClient(ctx, kinde.NewClientOptions())
+	client, err := newManagementClient(ctx, managementConfigFromEnv())
 	if err != nil {
 		t.Fatalf("failed to create management client: %s", err)
 	}
