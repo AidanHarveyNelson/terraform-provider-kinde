@@ -37,6 +37,7 @@ func TestKindeProviderResourcesSurface(t *testing.T) {
 		"kinde_user_role",
 		"kinde_environment_feature_flags",
 		"kinde_feature_flag",
+		"kinde_organization_feature_flags",
 	}
 
 	if !reflect.DeepEqual(got, want) {

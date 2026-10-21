@@ -29,6 +29,7 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_environment_feature_flags` | `read:environment_feature_flags`, `update:environment_feature_flags`, `delete:environment_feature_flags` |
 | `kinde_feature_flag` | `create:feature_flags`, `update:feature_flags`, `delete:feature_flags`, `read:environment_feature_flags` |
 | `kinde_organization` | `create:organizations`, `read:organizations`, `update:organizations`, `delete:organizations` |
+| `kinde_organization_feature_flags` | `read:organization_feature_flags`, `update:organization_feature_flags`, `delete:organization_feature_flags` |
 | `kinde_organization_user` | `create:organization_users`, `read:organization_users`, `update:organization_users`, `delete:organization_users` |
 | `kinde_permission` | `create:permissions`, `read:permissions`, `update:permissions`, `delete:permissions` |
 | `kinde_role` | `create:roles`, `read:roles`, `update:roles`, `delete:roles`, `read:role_permissions`, `update:role_permissions`, `delete:role_permissions` |
@@ -108,6 +109,7 @@ provider "kinde" {}
 | `kinde_environment_feature_flags` | Feature flag overrides for the environment |
 | `kinde_feature_flag` | Feature flag definitions |
 | `kinde_organization` | Organizations, including theme colors and handle |
+| `kinde_organization_feature_flags` | Feature flag overrides for an organization |
 | `kinde_organization_user` | Membership of a user in an organization |
 | `kinde_permission` | Permissions |
 | `kinde_role` | Roles and their assigned permissions |

@@ -132,8 +132,12 @@ func (s *stubFeatureFlags) setOverride(key, value string) {
 }
 
 func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
+	return s.handlersAt("/api/v1/environment/feature_flags", false, true)
+}
+
+func (s *stubFeatureFlags) handlersAt(base string, valueInQuery, removable bool) map[string]http.HandlerFunc {
 	handlers := map[string]http.HandlerFunc{
-		"/api/v1/environment/feature_flags": func(w http.ResponseWriter, r *http.Request) {
+		base: func(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			flags := map[string]any{}
@@ -152,7 +156,7 @@ func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
 	}
 
 	for key := range s.defaults {
-		handlers["/api/v1/environment/feature_flags/"+key] = func(w http.ResponseWriter, r *http.Request) {
+		handlers[base+"/"+key] = func(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			switch r.Method {
@@ -160,9 +164,17 @@ func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
 				var body struct {
 					Value string `json:"value"`
 				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				if valueInQuery {
+					body.Value = r.URL.Query().Get("value")
+				} else {
+					_ = json.NewDecoder(r.Body).Decode(&body)
+				}
 				s.overrides[key] = body.Value
 			case http.MethodDelete:
+				if !removable {
+					http.NotFound(w, r)
+					return
+				}
 				delete(s.overrides, key)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"code": "OK", "message": "Success"})

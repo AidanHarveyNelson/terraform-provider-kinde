@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resource, built on the official
   [`kinde-oss/kinde-go`](https://github.com/kinde-oss/kinde-go) SDK.
 - `kinde_feature_flag` resource for feature flag definitions.
+- `kinde_organization_feature_flags` resource for organization feature flag overrides.
 
 ### Changed
 
