@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
@@ -22,7 +23,16 @@ type ManagementAPI struct {
 }
 
 func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(m.baseURL, "/")+path, nil)
+	return m.requestJSON(ctx, http.MethodGet, path, nil, out)
+}
+
+func (m *ManagementAPI) requestJSON(ctx context.Context, method, path string, query url.Values, out any) error {
+	target := strings.TrimSuffix(m.baseURL, "/") + path
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -30,13 +40,13 @@ func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error
 
 	res, err := m.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
+		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return fmt.Errorf("GET %s: failed to read response: %w", path, err)
+		return fmt.Errorf("%s %s: failed to read response: %w", method, path, err)
 	}
 
 	if res.StatusCode >= http.StatusBadRequest {
@@ -51,13 +61,16 @@ func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error
 			for _, e := range apiErr.Errors {
 				messages = append(messages, fmt.Sprintf("%s: %s", e.Code, e.Message))
 			}
-			return fmt.Errorf("GET %s failed (status %d): %s", path, res.StatusCode, strings.Join(messages, "; "))
+			return fmt.Errorf("%s %s failed (status %d): %s", method, path, res.StatusCode, strings.Join(messages, "; "))
 		}
-		return fmt.Errorf("GET %s failed (status %d): %s", path, res.StatusCode, string(body))
+		return fmt.Errorf("%s %s failed (status %d): %s", method, path, res.StatusCode, string(body))
 	}
 
+	if out == nil {
+		return nil
+	}
 	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("GET %s: failed to decode response: %w", path, err)
+		return fmt.Errorf("%s %s: failed to decode response: %w", method, path, err)
 	}
 	return nil
 }

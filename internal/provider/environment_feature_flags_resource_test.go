@@ -82,7 +82,7 @@ func testAccCreateFeatureFlag(t *testing.T, key string, flagType management_api.
 	}
 
 	t.Cleanup(func() {
-		if _, err := client.DeleteFeatureFlag(ctx, management_api.DeleteFeatureFlagParams{FeatureFlagKey: key}); err != nil {
+		if err := deleteFeatureFlag(ctx, client, key); err != nil {
 			t.Logf("failed to delete feature flag %s: %s", key, err)
 		}
 	})

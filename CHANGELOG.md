@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `kinde_environment` data source and `kinde_environment_feature_flags`
   resource, built on the official
   [`kinde-oss/kinde-go`](https://github.com/kinde-oss/kinde-go) SDK.
+- `kinde_feature_flag` resource for feature flag definitions.
 
 ### Changed
 
