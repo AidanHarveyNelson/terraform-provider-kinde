@@ -94,6 +94,11 @@ func statusCodeFromError(err error) (int, bool) {
 }
 
 func managementAPIError(operation string, res any) error {
+	if res == nil {
+		return fmt.Errorf("%s failed: empty response", operation)
+	}
+
+	status := responseStatusCode(res)
 	val := reflect.ValueOf(res)
 	if val.Kind() == reflect.Pointer && !val.IsNil() {
 		val = val.Elem()
@@ -106,10 +111,16 @@ func managementAPIError(operation string, res any) error {
 				for _, apiErr := range apiErrs {
 					messages = append(messages, fmt.Sprintf("%s: %s", apiErr.Code.Or("UNKNOWN"), apiErr.Message.Or("")))
 				}
-				return fmt.Errorf("%s failed (%T): %s", operation, res, strings.Join(messages, "; "))
+				return &managementRequestError{
+					StatusCode: status,
+					Message:    fmt.Sprintf("%s failed (%T): %s", operation, res, strings.Join(messages, "; ")),
+				}
 			}
 		}
 	}
 
-	return fmt.Errorf("%s failed: unexpected response %T", operation, res)
+	return &managementRequestError{
+		StatusCode: status,
+		Message:    fmt.Sprintf("%s failed: unexpected response %T", operation, res),
+	}
 }

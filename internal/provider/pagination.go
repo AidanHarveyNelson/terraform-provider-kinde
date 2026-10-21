@@ -5,6 +5,8 @@ package provider
 
 import (
 	"context"
+	"net/url"
+	"strconv"
 )
 
 const defaultPageSize = 100
@@ -30,4 +32,12 @@ func getAllPages[T any](ctx context.Context, fetchPage func(ctx context.Context,
 		}
 		nextToken = next
 	}
+}
+
+func pagedPath(path, nextToken string) string {
+	query := url.Values{"page_size": {strconv.Itoa(defaultPageSize)}}
+	if nextToken != "" {
+		query.Set("next_token", nextToken)
+	}
+	return path + "?" + query.Encode()
 }

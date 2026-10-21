@@ -7,15 +7,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/permissions"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -28,14 +26,7 @@ func NewPermissionResource() resource.Resource {
 }
 
 type PermissionResource struct {
-	client *permissions.Client
-}
-
-type permissionsPage struct {
-	Code        string                   `json:"code"`
-	Message     string                   `json:"message"`
-	NextToken   string                   `json:"next_token"`
-	Permissions []permissions.Permission `json:"permissions"`
+	client *ManagementAPI
 }
 
 func (r *PermissionResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -73,7 +64,7 @@ func (r *PermissionResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -82,7 +73,13 @@ func (r *PermissionResource) Configure(_ context.Context, req resource.Configure
 		return
 	}
 
-	r.client = client.Permissions
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *PermissionResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -94,7 +91,7 @@ func (r *PermissionResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	createParams := expandPermissionCreateParams(plan)
-	permission, err := r.client.Create(ctx, createParams)
+	permission, err := r.createPermission(ctx, createParams)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Creating Permission",
@@ -107,12 +104,7 @@ func (r *PermissionResource) Create(ctx context.Context, req resource.CreateRequ
 	plan.ID = types.StringValue(permission.ID)
 
 	// After creation, search for the permission to get its full details
-	searchParams := permissions.SearchParams{
-		Name: plan.Name.ValueString(),
-		Key:  plan.Key.ValueString(),
-	}
-
-	permission, err = r.client.Search(ctx, searchParams)
+	permission, err = r.searchPermission(ctx, plan.Name.ValueString(), plan.Key.ValueString())
 	if err != nil {
 		if cleanupErr := r.cleanupPermissionOnCreateFailure(ctx, createdPermissionID); cleanupErr != nil {
 			resp.Diagnostics.AddWarning(
@@ -187,8 +179,11 @@ func (r *PermissionResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	updateParams := expandPermissionUpdateParams(plan)
-	err := r.client.Update(ctx, plan.ID.ValueString(), updateParams)
-	if err != nil {
+	res, err := r.client.UpdatePermissions(ctx,
+		management_api.NewOptUpdatePermissionsReq(updateParams),
+		management_api.UpdatePermissionsParams{PermissionID: plan.ID.ValueString()},
+	)
+	if _, err = expectResponse[management_api.SuccessResponse]("update permission", res, err); err != nil {
 		resp.Diagnostics.AddError(
 			"Error Updating Permission",
 			fmt.Sprintf("Could not update permission ID %s: %s", plan.ID.ValueString(), err),
@@ -197,12 +192,7 @@ func (r *PermissionResource) Update(ctx context.Context, req resource.UpdateRequ
 	}
 
 	// After update, search for the permission to get its latest state
-	searchParams := permissions.SearchParams{
-		Name: plan.Name.ValueString(),
-		Key:  plan.Key.ValueString(),
-	}
-
-	permission, err := r.client.Search(ctx, searchParams)
+	permission, err := r.searchPermission(ctx, plan.Name.ValueString(), plan.Key.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Updated Permission",
@@ -224,7 +214,7 @@ func (r *PermissionResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	if err := r.client.Delete(ctx, state.ID.ValueString()); err != nil {
+	if err := r.deletePermission(ctx, state.ID.ValueString()); err != nil {
 		if isNotFoundError(err) {
 			return
 		}
@@ -262,22 +252,50 @@ func (r *PermissionResource) ImportState(ctx context.Context, req resource.Impor
 	)
 }
 
-func (r *PermissionResource) listAllPermissions(ctx context.Context) ([]permissions.Permission, error) {
-	return getAllPages(ctx, func(ctx context.Context, nextToken string) ([]permissions.Permission, string, error) {
-		query := url.Values{"page_size": {strconv.Itoa(defaultPageSize)}}
-		if nextToken != "" {
-			query.Set("next_token", nextToken)
+func (r *PermissionResource) listAllPermissions(ctx context.Context) ([]kindePermission, error) {
+	return getAllPages(ctx, func(ctx context.Context, nextToken string) ([]kindePermission, string, error) {
+		var page struct {
+			NextToken   string            `json:"next_token"`
+			Permissions []kindePermission `json:"permissions"`
 		}
-		req, err := r.client.NewRequest(ctx, http.MethodGet, "/api/v1/permissions", query, nil)
-		if err != nil {
-			return nil, "", err
-		}
-		var page permissionsPage
-		if err := r.client.DoRequest(req, &page); err != nil {
+		if err := r.client.getJSON(ctx, pagedPath("/api/v1/permissions", nextToken), &page); err != nil {
 			return nil, "", err
 		}
 		return page.Permissions, page.NextToken, nil
 	})
+}
+
+func (r *PermissionResource) searchPermission(ctx context.Context, name, key string) (*kindePermission, error) {
+	permissions, err := r.listAllPermissions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find permission with name %s and key %s: %w", name, key, err)
+	}
+
+	for _, permission := range permissions {
+		if permission.Name == name && permission.Key == key {
+			return &permission, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not find permission with name %s and key %s: permission not found", name, key)
+}
+
+func (r *PermissionResource) createPermission(ctx context.Context, params permissionCreateParams) (*kindePermission, error) {
+	var response struct {
+		Permission struct {
+			ID string `json:"id"`
+		} `json:"permission"`
+	}
+	if err := r.client.doJSON(ctx, http.MethodPost, "/api/v1/permissions", params, &response); err != nil {
+		return nil, err
+	}
+	return &kindePermission{ID: response.Permission.ID}, nil
+}
+
+func (r *PermissionResource) deletePermission(ctx context.Context, permissionID string) error {
+	res, err := r.client.DeletePermission(ctx, management_api.DeletePermissionParams{PermissionID: permissionID})
+	_, err = expectResponse[management_api.SuccessResponse]("delete permission", res, err)
+	return err
 }
 
 func (r *PermissionResource) cleanupPermissionOnCreateFailure(ctx context.Context, permissionID string) error {
@@ -285,7 +303,7 @@ func (r *PermissionResource) cleanupPermissionOnCreateFailure(ctx context.Contex
 		return nil
 	}
 
-	if err := r.client.Delete(ctx, permissionID); err != nil && !isNotFoundError(err) {
+	if err := r.deletePermission(ctx, permissionID); err != nil && !isNotFoundError(err) {
 		return err
 	}
 

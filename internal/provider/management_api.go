@@ -4,11 +4,13 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/kinde-oss/kinde-go/kinde/management_api"
@@ -74,42 +76,107 @@ func (s managementSecuritySource) KindeBearerAuth(ctx context.Context, _ managem
 }
 
 func (m *ManagementAPI) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(m.baseURL, "/")+path, nil)
+	return m.doJSON(ctx, http.MethodGet, path, nil, out)
+}
+
+func (m *ManagementAPI) doJSON(ctx context.Context, method, path string, payload, out any) error {
+	var body io.Reader
+	if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		body = bytes.NewReader(raw)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(m.baseURL, "/")+path, body)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	res, err := m.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
+		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
+	raw, err := io.ReadAll(res.Body)
 	if err != nil {
-		return fmt.Errorf("GET %s: failed to read response: %w", path, err)
+		return fmt.Errorf("%s %s: failed to read response: %w", method, path, err)
+	}
+
+	var apiErr struct {
+		Errors []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(raw, &apiErr) == nil && len(apiErr.Errors) > 0 {
+		messages := make([]string, 0, len(apiErr.Errors))
+		for _, e := range apiErr.Errors {
+			messages = append(messages, fmt.Sprintf("%s: %s", e.Code, e.Message))
+		}
+		return &managementRequestError{
+			StatusCode: res.StatusCode,
+			Message:    fmt.Sprintf("%s %s failed (status %d): %s", method, path, res.StatusCode, strings.Join(messages, "; ")),
+		}
 	}
 
 	if res.StatusCode >= http.StatusBadRequest {
-		var apiErr struct {
-			Errors []struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			} `json:"errors"`
+		return &managementRequestError{
+			StatusCode: res.StatusCode,
+			Message:    fmt.Sprintf("%s %s failed (status %d): %s", method, path, res.StatusCode, string(raw)),
 		}
-		if json.Unmarshal(body, &apiErr) == nil && len(apiErr.Errors) > 0 {
-			messages := make([]string, 0, len(apiErr.Errors))
-			for _, e := range apiErr.Errors {
-				messages = append(messages, fmt.Sprintf("%s: %s", e.Code, e.Message))
-			}
-			return fmt.Errorf("GET %s failed (status %d): %s", path, res.StatusCode, strings.Join(messages, "; "))
-		}
-		return fmt.Errorf("GET %s failed (status %d): %s", path, res.StatusCode, string(body))
 	}
 
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("GET %s: failed to decode response: %w", path, err)
+	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("%s %s: failed to decode response: %w", method, path, err)
 	}
 	return nil
+}
+
+type managementRequestError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *managementRequestError) Error() string {
+	return e.Message
+}
+
+var responseStatusSuffixes = map[string]int{
+	"BadRequest":      http.StatusBadRequest,
+	"Unauthorized":    http.StatusUnauthorized,
+	"Forbidden":       http.StatusForbidden,
+	"NotFound":        http.StatusNotFound,
+	"Conflict":        http.StatusConflict,
+	"TooManyRequests": http.StatusTooManyRequests,
+	"ErrorResponse":   http.StatusBadRequest,
+}
+
+func responseStatusCode(res any) int {
+	name := reflect.TypeOf(res).String()
+	for suffix, status := range responseStatusSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return status
+		}
+	}
+	return 0
+}
+
+func expectResponse[T any](operation string, res any, err error) (*T, error) {
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	if typed, ok := res.(*T); ok {
+		return typed, nil
+	}
+	return nil, managementAPIError(operation, res)
 }
