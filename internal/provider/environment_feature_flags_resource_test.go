@@ -21,37 +21,72 @@ import (
 )
 
 func TestAccEnvironmentFeatureFlagsResource(t *testing.T) {
-	boolKey := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_bool"), "-", "_")
-	strKey := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_str"), "-", "_")
+	prefix := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_env"), "-", "_")
+	boolKey, intKey, strKey, unmanagedKey := prefix+"_bool", prefix+"_int", prefix+"_str", prefix+"_unmanaged"
+	scope := testAccEnvironmentScope()
+	owner := ""
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
 			testAccCreateFeatureFlag(t, boolKey, management_api.CreateFeatureFlagReqTypeBool, "false")
+			testAccCreateFeatureFlag(t, intKey, management_api.CreateFeatureFlagReqTypeInt, "1")
 			testAccCreateFeatureFlag(t, strKey, management_api.CreateFeatureFlagReqTypeStr, "default")
+			testAccCreateFeatureFlag(t, unmanagedKey, management_api.CreateFeatureFlagReqTypeStr, "default")
+			testAccSetKindeOverride(t, scope, &owner, unmanagedKey, "set outside terraform")
 		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+			boolKey:      "false",
+			intKey:       "1",
+			strKey:       "default",
+			unmanagedKey: "set outside terraform",
+		}),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", strKey: "first"}),
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "id", "environment"),
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "2"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "3"),
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+boolKey, "true"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+intKey, "5"),
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+strKey, "first"),
+					testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+						boolKey:      "true",
+						intKey:       "5",
+						strKey:       "first",
+						unmanagedKey: "set outside terraform",
+					}),
 				),
 			},
 			{
-				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "false"}),
+				PreConfig:          func() { testAccSetKindeOverride(t, scope, &owner, strKey, "changed in kinde") },
+				Config:             testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
+				Check:  testAccCheckKindeFlagValues(scope, &owner, map[string]string{strKey: "first"}),
+			},
+			{
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "7"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "1"),
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+boolKey, "false"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "2"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+intKey, "7"),
+					resource.TestCheckNoResourceAttr("kinde_environment_feature_flags.test", "flags."+strKey),
+					testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+						boolKey:      "true",
+						intKey:       "7",
+						strKey:       "default",
+						unmanagedKey: "set outside terraform",
+					}),
 				),
 			},
 			{
 				ResourceName:      "kinde_environment_feature_flags.test",
 				ImportState:       true,
-				ImportStateId:     boolKey,
+				ImportStateId:     boolKey + "," + intKey,
 				ImportStateVerify: true,
 			},
 		},
@@ -82,7 +117,7 @@ func testAccCreateFeatureFlag(t *testing.T, key string, flagType management_api.
 	}
 
 	t.Cleanup(func() {
-		if _, err := client.DeleteFeatureFlag(ctx, management_api.DeleteFeatureFlagParams{FeatureFlagKey: key}); err != nil {
+		if err := deleteFeatureFlag(ctx, client, key); err != nil {
 			t.Logf("failed to delete feature flag %s: %s", key, err)
 		}
 	})
@@ -132,8 +167,12 @@ func (s *stubFeatureFlags) setOverride(key, value string) {
 }
 
 func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
+	return s.handlersAt("/api/v1/environment/feature_flags", false, true)
+}
+
+func (s *stubFeatureFlags) handlersAt(base string, valueInQuery, removable bool) map[string]http.HandlerFunc {
 	handlers := map[string]http.HandlerFunc{
-		"/api/v1/environment/feature_flags": func(w http.ResponseWriter, r *http.Request) {
+		base: func(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			flags := map[string]any{}
@@ -152,7 +191,7 @@ func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
 	}
 
 	for key := range s.defaults {
-		handlers["/api/v1/environment/feature_flags/"+key] = func(w http.ResponseWriter, r *http.Request) {
+		handlers[base+"/"+key] = func(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			switch r.Method {
@@ -160,9 +199,17 @@ func (s *stubFeatureFlags) handlers() map[string]http.HandlerFunc {
 				var body struct {
 					Value string `json:"value"`
 				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
+				if valueInQuery {
+					body.Value = r.URL.Query().Get("value")
+				} else {
+					_ = json.NewDecoder(r.Body).Decode(&body)
+				}
 				s.overrides[key] = body.Value
 			case http.MethodDelete:
+				if !removable {
+					http.NotFound(w, r)
+					return
+				}
 				delete(s.overrides, key)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"code": "OK", "message": "Success"})

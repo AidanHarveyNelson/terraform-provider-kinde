@@ -12,6 +12,19 @@ Manage your Kinde business as code — applications, APIs, connections, organiza
 
 Requires Terraform 1.0+ and Go 1.24+
 
+### Running the tests
+
+| Command | What it runs |
+| --- | --- |
+| `make test` | Unit tests. No Kinde account needed; resources run end to end against a stub Management API. |
+| `make testacc` | All acceptance tests against a real Kinde business. |
+| `make test-feature-flags` | Unit tests for the environment and feature flag resources. |
+| `make testacc-feature-flags` | Acceptance tests for the environment and feature flag resources. |
+
+Acceptance tests read credentials from a `.env` file in the repository root (copy `.env.example`). Use a non-production environment: the tests create and delete real objects, all prefixed `tfacc`. The M2M application needs the scopes listed under [Prerequisites](#prerequisites) for the resources under test, plus `create:feature_flags`, `update:feature_flags` and `delete:feature_flags` for the feature flag tests.
+
+The feature flag acceptance tests check values in Kinde directly, not just in Terraform state, including drift made outside Terraform and that destroy leaves unmanaged overrides alone.
+
 ## Getting started
 
 ### Prerequisites
@@ -27,11 +40,14 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_application_connection` | `create:application_connections`, `read:application_connections`, `delete:application_connections` |
 | `kinde_connection` | `create:connections`, `read:connections`, `update:connections`, `delete:connections` |
 | `kinde_environment_feature_flags` | `read:environment_feature_flags`, `update:environment_feature_flags`, `delete:environment_feature_flags` |
+| `kinde_feature_flag` | `create:feature_flags`, `update:feature_flags`, `delete:feature_flags`, `read:environment_feature_flags` |
 | `kinde_organization` | `create:organizations`, `read:organizations`, `update:organizations`, `delete:organizations` |
+| `kinde_organization_feature_flags` | `read:organization_feature_flags`, `update:organization_feature_flags`, `delete:organization_feature_flags` |
 | `kinde_organization_user` | `create:organization_users`, `read:organization_users`, `update:organization_users`, `delete:organization_users` |
 | `kinde_permission` | `create:permissions`, `read:permissions`, `update:permissions`, `delete:permissions` |
 | `kinde_role` | `create:roles`, `read:roles`, `update:roles`, `delete:roles`, `read:role_permissions`, `update:role_permissions`, `delete:role_permissions` |
 | `kinde_user` | `create:users`, `read:users`, `update:users`, `delete:users`, `create:user_identities`, `read:user_identities` |
+| `kinde_user_feature_flags` | `update:user_feature_flags` |
 | `kinde_user_role` | `create:organization_user_roles`, `read:organization_user_roles`, `delete:organization_user_roles` |
 
 | Data source | Required scopes |
@@ -105,11 +121,14 @@ provider "kinde" {}
 | `kinde_application_connection` | Enables a connection on an application |
 | `kinde_connection` | Social and enterprise identity connections |
 | `kinde_environment_feature_flags` | Feature flag overrides for the environment |
+| `kinde_feature_flag` | Feature flag definitions |
 | `kinde_organization` | Organizations, including theme colors and handle |
+| `kinde_organization_feature_flags` | Feature flag overrides for an organization |
 | `kinde_organization_user` | Membership of a user in an organization |
 | `kinde_permission` | Permissions |
 | `kinde_role` | Roles and their assigned permissions |
 | `kinde_user` | Users and their identities |
+| `kinde_user_feature_flags` | Feature flag overrides for a user (Kinde can't remove user overrides) |
 | `kinde_user_role` | Assignment of a role to a user in an organization |
 
 ## Data sources
