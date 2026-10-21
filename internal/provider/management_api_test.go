@@ -65,3 +65,31 @@ func TestIsNotFoundErrorWithManagementAPI(t *testing.T) {
 		t.Fatalf("expected a typed NotFound response to be a not found error, got %v", err)
 	}
 }
+
+func TestIsNotFoundErrorWithKindeNotFoundCodes(t *testing.T) {
+	client := newTestManagementAPI(t, map[string]http.HandlerFunc{
+		"/api/v1/roles/missing": func(w http.ResponseWriter, r *http.Request) {
+			fakeError(w, http.StatusBadRequest, "INVALID_ROLE_ID", "Role was not found")
+		},
+		"/api/v1/roles/forbidden": func(w http.ResponseWriter, r *http.Request) {
+			fakeError(w, http.StatusForbidden, "ROLE_ID_INVALID", "Not allowed")
+		},
+	})
+	ctx := context.Background()
+
+	res, err := client.DeleteRole(ctx, management_api.DeleteRoleParams{RoleID: "missing"})
+	_, err = expectResponse[management_api.SuccessResponse]("delete role", res, err)
+	if !isNotFoundError(err) {
+		t.Fatalf("expected a typed 400 with a not found code to be a not found error, got %v", err)
+	}
+
+	err = client.getJSON(ctx, "/api/v1/roles/missing", &struct{}{})
+	if !isNotFoundError(err) {
+		t.Fatalf("expected a raw 400 with a not found code to be a not found error, got %v", err)
+	}
+
+	err = client.getJSON(ctx, "/api/v1/roles/forbidden", &struct{}{})
+	if isNotFoundError(err) {
+		t.Fatalf("expected a 403 not to be a not found error even with a not found code, got %v", err)
+	}
+}

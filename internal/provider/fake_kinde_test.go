@@ -243,7 +243,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/permissions/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		permission, ok := f.permissions[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "PERMISSION_NOT_FOUND", "Permission not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_PERMISSION_ID", "Permission not found")
 			return
 		}
 		var body fakePermission
@@ -253,7 +253,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/permissions/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.permissions[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "PERMISSION_NOT_FOUND", "Permission not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_PERMISSION_ID", "Permission not found")
 			return
 		}
 		delete(f.permissions, p[0])
@@ -270,14 +270,14 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/apis/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		api, ok := f.apis[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "API_NOT_FOUND", "API not found")
+			fakeError(w, http.StatusBadRequest, "API_INVALID", "API not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, map[string]any{"code": "OK", "api": api})
 	})
 	f.route(http.MethodDelete, "/api/v1/apis/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.apis[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "API_NOT_FOUND", "API not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_API", "API not found")
 			return
 		}
 		delete(f.apis, p[0])
@@ -298,7 +298,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/applications/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		app, ok := f.applications[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "APPLICATION_NOT_FOUND", "Application not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_APP_ID", "Application not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, map[string]any{"code": "OK", "application": app})
@@ -306,7 +306,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/applications/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		app, ok := f.applications[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "APPLICATION_NOT_FOUND", "Application not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_APP_ID", "Application not found")
 			return
 		}
 		var body fakeApplication
@@ -327,7 +327,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/applications/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.applications[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "APPLICATION_NOT_FOUND", "Application not found")
+			fakeError(w, http.StatusBadRequest, "APPLICATION_ID_INVALID", "Application not found")
 			return
 		}
 		delete(f.applications, p[0])
@@ -335,10 +335,6 @@ func (f *fakeKinde) registerRoutes() {
 		fakeOK(w, http.StatusOK)
 	})
 	f.route(http.MethodGet, "/api/v1/applications/([^/]+)/connections", func(w http.ResponseWriter, r *http.Request, p []string) {
-		if _, ok := f.applications[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "APPLICATION_NOT_FOUND", "Application not found")
-			return
-		}
 		var connections []fakeConnection
 		for _, connection := range sortedValues(f.connections) {
 			if f.appConnections[p[0]][connection.ID] {
@@ -356,7 +352,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/applications/([^/]+)/connections/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if !f.appConnections[p[0]][p[1]] {
-			fakeError(w, http.StatusNotFound, "CONNECTION_NOT_FOUND", "Connection not enabled")
+			fakeError(w, http.StatusBadRequest, "APPLICATION_NOT_FOUND", "Connection not enabled")
 			return
 		}
 		delete(f.appConnections[p[0]], p[1])
@@ -381,7 +377,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/connections/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		connection, ok := f.connections[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "CONNECTION_NOT_FOUND", "Connection not found")
+			fakeError(w, http.StatusBadRequest, "CONNECTION_NOT_FOUND", "Connection not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, map[string]any{"code": "OK", "connection": connection})
@@ -389,7 +385,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/connections/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		connection, ok := f.connections[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "CONNECTION_NOT_FOUND", "Connection not found")
+			fakeError(w, http.StatusBadRequest, "CONNECTION_NOT_FOUND", "Connection not found")
 			return
 		}
 		var body struct {
@@ -411,7 +407,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/connections/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.connections[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "CONNECTION_NOT_FOUND", "Connection not found")
+			fakeError(w, http.StatusBadRequest, "CONNECTION_NOT_FOUND", "Connection not found")
 			return
 		}
 		delete(f.connections, p[0])
@@ -431,7 +427,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/organization", func(w http.ResponseWriter, r *http.Request, _ []string) {
 		organization, ok := f.organizations[r.URL.Query().Get("code")]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ORGANIZATION_NOT_FOUND", "Organization not found")
+			fakeError(w, http.StatusBadRequest, "ORGANIZATION_INVALID", "Organization not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, organization)
@@ -439,7 +435,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/organization/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		organization, ok := f.organizations[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ORGANIZATION_NOT_FOUND", "Organization not found")
+			fakeError(w, http.StatusBadRequest, "ORGANIZATION_INVALID", "Organization not found")
 			return
 		}
 		var body map[string]string
@@ -472,7 +468,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/organization/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.organizations[p[0]]; !ok {
-			fakeJSON(w, http.StatusNotFound, map[string]string{"code": "ORGANIZATION_NOT_FOUND", "message": "Organization not found"})
+			fakeError(w, http.StatusBadRequest, "ORGANIZATION_INVALID", "Invalid organization")
 			return
 		}
 		delete(f.organizations, p[0])
@@ -512,6 +508,10 @@ func (f *fakeKinde) registerRoutes() {
 		fakeOK(w, http.StatusOK)
 	})
 	f.route(http.MethodGet, "/api/v1/organizations/([^/]+)/users/([^/]+)/roles", func(w http.ResponseWriter, r *http.Request, p []string) {
+		if _, ok := f.users[p[1]]; !ok {
+			fakeError(w, http.StatusBadRequest, "USER_INVALID", "Invalid user id")
+			return
+		}
 		roleIDs, ok := f.orgMembers[p[0]][p[1]]
 		if !ok {
 			fakeError(w, http.StatusBadRequest, "USER_NOT_IN_ORGANIZATION", "User is not in the organization")
@@ -568,7 +568,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/roles/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		role, ok := f.roles[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "ROLE_ID_INVALID", "Role not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, map[string]any{"code": "OK", "role": role})
@@ -576,7 +576,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/roles/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		role, ok := f.roles[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "ROLE_ID_INVALID", "Role not found")
 			return
 		}
 		var body fakeRole
@@ -586,7 +586,7 @@ func (f *fakeKinde) registerRoutes() {
 	})
 	f.route(http.MethodDelete, "/api/v1/roles/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		if _, ok := f.roles[p[0]]; !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_ROLE_ID", "Role not found")
 			return
 		}
 		delete(f.roles, p[0])
@@ -595,7 +595,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/roles/([^/]+)/permissions", func(w http.ResponseWriter, r *http.Request, p []string) {
 		role, ok := f.roles[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "ROLE_ID_INVALID", "Role not found")
 			return
 		}
 		var permissions []fakePermission
@@ -608,7 +608,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/roles/([^/]+)/permissions", func(w http.ResponseWriter, r *http.Request, p []string) {
 		role, ok := f.roles[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "ROLE_ID_INVALID", "Role not found")
 			return
 		}
 		var body struct {
@@ -629,7 +629,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodDelete, "/api/v1/roles/([^/]+)/permissions/([^/]+)", func(w http.ResponseWriter, r *http.Request, p []string) {
 		role, ok := f.roles[p[0]]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "ROLE_NOT_FOUND", "Role not found")
+			fakeError(w, http.StatusBadRequest, "INVALID_ROLE_ID", "Role not found")
 			return
 		}
 		var kept []string
@@ -666,7 +666,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodGet, "/api/v1/user", func(w http.ResponseWriter, r *http.Request, _ []string) {
 		user, ok := f.users[r.URL.Query().Get("id")]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+			fakeError(w, http.StatusBadRequest, "USER_INVALID", "User not found")
 			return
 		}
 		fakeJSON(w, http.StatusOK, user)
@@ -674,7 +674,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodPatch, "/api/v1/user", func(w http.ResponseWriter, r *http.Request, _ []string) {
 		user, ok := f.users[r.URL.Query().Get("id")]
 		if !ok {
-			fakeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+			fakeError(w, http.StatusBadRequest, "USER_INVALID", "User not found")
 			return
 		}
 		var body struct {
@@ -698,7 +698,7 @@ func (f *fakeKinde) registerRoutes() {
 	f.route(http.MethodDelete, "/api/v1/user", func(w http.ResponseWriter, r *http.Request, _ []string) {
 		id := r.URL.Query().Get("id")
 		if _, ok := f.users[id]; !ok {
-			fakeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+			fakeError(w, http.StatusBadRequest, "USER_INVALID", "User not found")
 			return
 		}
 		delete(f.users, id)

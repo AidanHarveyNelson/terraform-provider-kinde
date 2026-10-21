@@ -31,8 +31,24 @@ func splitID(id string, expectedParts int, format string) ([]string, error) {
 	return parts, nil
 }
 
+var notFoundErrorCodes = []string{
+	"API_INVALID",
+	"INVALID_API",
+	"INVALID_APP_ID",
+	"APPLICATION_ID_INVALID",
+	"APPLICATION_NOT_FOUND",
+	"ORGANIZATION_INVALID",
+	"ROLE_ID_INVALID",
+	"INVALID_ROLE_ID",
+	"CONNECTION_NOT_FOUND",
+	"USER_INVALID",
+	"INVALID_PERMISSION_ID",
+	"IDENTITY_NOT_FOUND",
+}
+
 func isNotFoundError(err error) bool {
-	return hasStatusCode(err, http.StatusNotFound)
+	return hasStatusCode(err, http.StatusNotFound) ||
+		(hasStatusCode(err, http.StatusBadRequest) && containsAnyErrorCode(err, notFoundErrorCodes...))
 }
 
 func isUserNotInOrganizationError(err error) bool {
