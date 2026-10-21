@@ -38,6 +38,7 @@ func TestAccFeatureFlagResource(t *testing.T) {
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "key", key),
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "type", "bool"),
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "default_value", "false"),
+					testAccCheckKindeFlagDefinition(key, "bool", "false"),
 				),
 			},
 			{
@@ -46,6 +47,7 @@ func TestAccFeatureFlagResource(t *testing.T) {
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "name", "Beta access v2"),
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "allow_override_level", "usr"),
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "default_value", "true"),
+					testAccCheckKindeFlagDefinition(key, "bool", "true"),
 				),
 			},
 			{
@@ -53,7 +55,18 @@ func TestAccFeatureFlagResource(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "type", "int"),
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "default_value", "5"),
+					testAccCheckKindeFlagDefinition(key, "int", "5"),
 				),
+			},
+			{
+				PreConfig:          func() { testAccUpdateKindeFlagDefault(t, key, "Beta access v2", "int", "org", "9") },
+				Config:             testAccFeatureFlagConfig(key, "Beta access v2", "int", "org", "5"),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccFeatureFlagConfig(key, "Beta access v2", "int", "org", "5"),
+				Check:  testAccCheckKindeFlagDefinition(key, "int", "5"),
 			},
 			{
 				ResourceName:            "kinde_feature_flag.test",
@@ -65,6 +78,7 @@ func TestAccFeatureFlagResource(t *testing.T) {
 				Config: testAccFeatureFlagConfig(newKey, "Beta access v2", "int", "org", "5"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_feature_flag.test", "id", newKey),
+					testAccCheckKindeFlagDefinition(newKey, "int", "5"),
 					testAccCheckFeatureFlagGone(key),
 				),
 			},

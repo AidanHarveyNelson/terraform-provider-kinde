@@ -6,11 +6,20 @@ LOCAL_PROVIDER_TFRC = $(LOCAL_PROVIDER_DIR)/terraform-dev.tfrc
 EXAMPLE ?= examples/resources/kinde_role
 PROVIDER_SOURCE ?= kinde-oss/kinde
 RESOURCE_EXAMPLES := $(sort $(wildcard examples/resources/*))
+FEATURE_FLAG_TESTS = Environment|FeatureFlag
 
 # Run acceptance tests
 .PHONY: testacc
 testacc:
 	set -a && . ./.env && set +a && TF_ACC=1 go test ./... -v $(TESTARGS) -timeout 120m
+
+.PHONY: test-feature-flags
+test-feature-flags:
+	go test ./internal/provider/ -v -count=1 -run '$(FEATURE_FLAG_TESTS)'
+
+.PHONY: testacc-feature-flags
+testacc-feature-flags:
+	set -a && . ./.env && set +a && TF_ACC=1 go test ./internal/provider/ -v -count=1 -run '$(FEATURE_FLAG_TESTS)' -timeout 30m
 
 # Run unit tests
 .PHONY: test

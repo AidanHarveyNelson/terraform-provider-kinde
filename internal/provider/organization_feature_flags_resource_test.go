@@ -49,6 +49,13 @@ resource "kinde_organization_feature_flags" "test" {
 `, prefix, boolKey, strKey, flags)
 	}
 
+	scope := testAccOrganizationScope()
+	orgCode := ""
+	twoFlags := config(`{
+    (kinde_feature_flag.bool.key) = "true"
+    (kinde_feature_flag.str.key)  = "custom"
+  }`)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -58,16 +65,25 @@ resource "kinde_organization_feature_flags" "test" {
 		),
 		Steps: []resource.TestStep{
 			{
-				Config: config(`{
-    (kinde_feature_flag.bool.key) = "true"
-    (kinde_feature_flag.str.key)  = "custom"
-  }`),
+				Config: twoFlags,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrPair("kinde_organization_feature_flags.test", "id", "kinde_organization.test", "code"),
 					resource.TestCheckResourceAttr("kinde_organization_feature_flags.test", "flags.%", "2"),
 					resource.TestCheckResourceAttr("kinde_organization_feature_flags.test", "flags."+boolKey, "true"),
 					resource.TestCheckResourceAttr("kinde_organization_feature_flags.test", "flags."+strKey, "custom"),
+					testAccCaptureAttr("kinde_organization.test", "code", &orgCode),
+					testAccCheckKindeFlagValues(scope, &orgCode, map[string]string{boolKey: "true", strKey: "custom"}),
 				),
+			},
+			{
+				PreConfig:          func() { testAccSetKindeOverride(t, scope, &orgCode, strKey, "changed in kinde") },
+				Config:             twoFlags,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: twoFlags,
+				Check:  testAccCheckKindeFlagValues(scope, &orgCode, map[string]string{strKey: "custom"}),
 			},
 			{
 				Config: config(`{
@@ -76,6 +92,7 @@ resource "kinde_organization_feature_flags" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_organization_feature_flags.test", "flags.%", "1"),
 					resource.TestCheckResourceAttr("kinde_organization_feature_flags.test", "flags."+boolKey, "false"),
+					testAccCheckKindeFlagValues(scope, &orgCode, map[string]string{boolKey: "false", strKey: "default"}),
 				),
 			},
 			{

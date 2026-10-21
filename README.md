@@ -12,6 +12,19 @@ Manage your Kinde business as code — applications, APIs, connections, organiza
 
 Requires Terraform 1.0+ and Go 1.24+
 
+### Running the tests
+
+| Command | What it runs |
+| --- | --- |
+| `make test` | Unit tests. No Kinde account needed; resources run end to end against a stub Management API. |
+| `make testacc` | All acceptance tests against a real Kinde business. |
+| `make test-feature-flags` | Unit tests for the environment and feature flag resources. |
+| `make testacc-feature-flags` | Acceptance tests for the environment and feature flag resources. |
+
+Acceptance tests read credentials from a `.env` file in the repository root (copy `.env.example`). Use a non-production environment: the tests create and delete real objects, all prefixed `tfacc`. The M2M application needs the scopes listed under [Prerequisites](#prerequisites) for the resources under test, plus `create:feature_flags`, `update:feature_flags` and `delete:feature_flags` for the feature flag tests.
+
+The feature flag acceptance tests check values in Kinde directly, not just in Terraform state, including drift made outside Terraform and that destroy leaves unmanaged overrides alone.
+
 ## Getting started
 
 ### Prerequisites

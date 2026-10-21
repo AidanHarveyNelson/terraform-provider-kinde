@@ -58,6 +58,13 @@ resource "kinde_user_feature_flags" "test" {
 `, strings.ReplaceAll(prefix, "_", "-"), boolKey, intKey, flags)
 	}
 
+	scope := testAccUserScope()
+	userID := ""
+	twoFlags := config(`{
+    (kinde_feature_flag.bool.key) = "true"
+    (kinde_feature_flag.int.key)  = "42"
+  }`)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -67,16 +74,25 @@ resource "kinde_user_feature_flags" "test" {
 		),
 		Steps: []resource.TestStep{
 			{
-				Config: config(`{
-    (kinde_feature_flag.bool.key) = "true"
-    (kinde_feature_flag.int.key)  = "42"
-  }`),
+				Config: twoFlags,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrPair("kinde_user_feature_flags.test", "id", "kinde_user.test", "id"),
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags.%", "2"),
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags."+boolKey, "true"),
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags."+intKey, "42"),
+					testAccCaptureAttr("kinde_user.test", "id", &userID),
+					testAccCheckKindeFlagValues(scope, &userID, map[string]string{boolKey: "true", intKey: "42"}),
 				),
+			},
+			{
+				PreConfig:          func() { testAccSetKindeOverride(t, scope, &userID, intKey, "7") },
+				Config:             twoFlags,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: twoFlags,
+				Check:  testAccCheckKindeFlagValues(scope, &userID, map[string]string{intKey: "42"}),
 			},
 			{
 				Config: config(`{
@@ -85,6 +101,8 @@ resource "kinde_user_feature_flags" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags.%", "1"),
 					resource.TestCheckResourceAttr("kinde_user_feature_flags.test", "flags."+boolKey, "false"),
+					resource.TestCheckNoResourceAttr("kinde_user_feature_flags.test", "flags."+intKey),
+					testAccCheckKindeFlagValues(scope, &userID, map[string]string{boolKey: "false", intKey: "42"}),
 				),
 			},
 			{

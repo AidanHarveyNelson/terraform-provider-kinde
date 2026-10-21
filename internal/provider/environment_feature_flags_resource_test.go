@@ -21,37 +21,72 @@ import (
 )
 
 func TestAccEnvironmentFeatureFlagsResource(t *testing.T) {
-	boolKey := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_bool"), "-", "_")
-	strKey := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_str"), "-", "_")
+	prefix := strings.ReplaceAll(acctest.RandomWithPrefix("tfacc_env"), "-", "_")
+	boolKey, intKey, strKey, unmanagedKey := prefix+"_bool", prefix+"_int", prefix+"_str", prefix+"_unmanaged"
+	scope := testAccEnvironmentScope()
+	owner := ""
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
 			testAccCreateFeatureFlag(t, boolKey, management_api.CreateFeatureFlagReqTypeBool, "false")
+			testAccCreateFeatureFlag(t, intKey, management_api.CreateFeatureFlagReqTypeInt, "1")
 			testAccCreateFeatureFlag(t, strKey, management_api.CreateFeatureFlagReqTypeStr, "default")
+			testAccCreateFeatureFlag(t, unmanagedKey, management_api.CreateFeatureFlagReqTypeStr, "default")
+			testAccSetKindeOverride(t, scope, &owner, unmanagedKey, "set outside terraform")
 		},
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+			boolKey:      "false",
+			intKey:       "1",
+			strKey:       "default",
+			unmanagedKey: "set outside terraform",
+		}),
 		Steps: []resource.TestStep{
 			{
-				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", strKey: "first"}),
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "id", "environment"),
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "2"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "3"),
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+boolKey, "true"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+intKey, "5"),
 					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+strKey, "first"),
+					testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+						boolKey:      "true",
+						intKey:       "5",
+						strKey:       "first",
+						unmanagedKey: "set outside terraform",
+					}),
 				),
 			},
 			{
-				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "false"}),
+				PreConfig:          func() { testAccSetKindeOverride(t, scope, &owner, strKey, "changed in kinde") },
+				Config:             testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "5", strKey: "first"}),
+				Check:  testAccCheckKindeFlagValues(scope, &owner, map[string]string{strKey: "first"}),
+			},
+			{
+				Config: testAccEnvironmentFeatureFlagsConfig(map[string]string{boolKey: "true", intKey: "7"}),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "1"),
-					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+boolKey, "false"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags.%", "2"),
+					resource.TestCheckResourceAttr("kinde_environment_feature_flags.test", "flags."+intKey, "7"),
+					resource.TestCheckNoResourceAttr("kinde_environment_feature_flags.test", "flags."+strKey),
+					testAccCheckKindeFlagValues(scope, &owner, map[string]string{
+						boolKey:      "true",
+						intKey:       "7",
+						strKey:       "default",
+						unmanagedKey: "set outside terraform",
+					}),
 				),
 			},
 			{
 				ResourceName:      "kinde_environment_feature_flags.test",
 				ImportState:       true,
-				ImportStateId:     boolKey,
+				ImportStateId:     boolKey + "," + intKey,
 				ImportStateVerify: true,
 			},
 		},
