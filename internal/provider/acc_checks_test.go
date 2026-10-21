@@ -340,3 +340,29 @@ func testAccCheckKindeRolesDestroyed(state *terraform.State) error {
 		return err == nil, err
 	})(state)
 }
+
+func testAccCheckKindeConnection(address, name, displayName, strategy string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		connection, err := (&ConnectionResource{client: client}).getConnection(ctx, rs.Primary.ID)
+		if err != nil {
+			return err
+		}
+		if err := expectEqual("connection name", connection.Name, name); err != nil {
+			return err
+		}
+		if err := expectEqual("connection display_name", connection.DisplayName, displayName); err != nil {
+			return err
+		}
+		return expectEqual("connection strategy", connection.Strategy, strategy)
+	})
+}
+
+func testAccCheckKindeConnectionsDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_connection", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := (&ConnectionResource{client: client}).getConnection(ctx, rs.Primary.ID)
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})(state)
+}
