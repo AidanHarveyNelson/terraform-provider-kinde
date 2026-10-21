@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -14,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/nxt-fwd/kinde-go/api/organizations"
+	"github.com/kinde-oss/kinde-go/kinde/management_api"
 )
 
 var (
@@ -27,7 +28,7 @@ func NewOrganizationUserResource() resource.Resource {
 }
 
 type OrganizationUserResource struct {
-	client *organizations.Client
+	client *ManagementAPI
 }
 
 func (r *OrganizationUserResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -73,7 +74,7 @@ func (r *OrganizationUserResource) Configure(_ context.Context, req resource.Con
 		return
 	}
 
-	client, ok := req.ProviderData.(*KindeClients)
+	clients, ok := req.ProviderData.(*KindeClients)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -82,7 +83,13 @@ func (r *OrganizationUserResource) Configure(_ context.Context, req resource.Con
 		return
 	}
 
-	r.client = client.Organizations
+	client, err := clients.ManagementClient()
+	if err != nil {
+		resp.Diagnostics.AddError("Unable to Create Kinde Management API Client", err.Error())
+		return
+	}
+
+	r.client = client
 }
 
 func (r *OrganizationUserResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -108,7 +115,7 @@ func (r *OrganizationUserResource) Create(ctx context.Context, req resource.Crea
 
 	// Check if the user is already a member so Create is idempotent.
 	// GetUserRoles returns an error when the membership is missing.
-	_, err := r.client.GetUserRoles(ctx, orgCode, userID)
+	_, err := getOrganizationUserRoles(ctx, r.client, orgCode, userID)
 	memberExists := err == nil
 	if err != nil && !isNotFoundError(err) && !isUserNotInOrganizationError(err) {
 		resp.Diagnostics.AddError(
@@ -121,11 +128,7 @@ func (r *OrganizationUserResource) Create(ctx context.Context, req resource.Crea
 	addedMembershipThisRun := false
 	if !memberExists {
 		// First, add user to organization without roles
-		params := organizations.AddUsersParams{
-			Users: []organizations.AddUser{{ID: userID}},
-		}
-
-		err := r.client.AddUsers(ctx, orgCode, params)
+		err := r.addUserToOrganization(ctx, orgCode, userID)
 		if err != nil {
 			// If the user was added concurrently, treat conflict as success.
 			if !hasStatusCode(err, http.StatusConflict) {
@@ -142,7 +145,7 @@ func (r *OrganizationUserResource) Create(ctx context.Context, req resource.Crea
 
 	// Then, if roles are specified, add them one by one
 	for _, roleID := range roles {
-		err := r.client.AddUserRole(ctx, orgCode, userID, roleID)
+		err := addOrganizationUserRole(ctx, r.client, orgCode, userID, roleID)
 		if err != nil {
 			// Best-effort rollback if membership was created in this call.
 			if addedMembershipThisRun {
@@ -178,7 +181,7 @@ func (r *OrganizationUserResource) Read(ctx context.Context, req resource.ReadRe
 	}
 
 	// Get user roles to verify membership
-	roles, err := r.client.GetUserRoles(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString())
+	roles, err := getOrganizationUserRoles(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString())
 	if err != nil {
 		if isNotFoundError(err) || isUserNotInOrganizationError(err) {
 			resp.State.RemoveResource(ctx)
@@ -224,7 +227,7 @@ func (r *OrganizationUserResource) Update(ctx context.Context, req resource.Upda
 	// Handle role updates
 	if !plan.Roles.Equal(state.Roles) {
 		// Get current roles from API to ensure we have the latest state
-		currentRoles, err := r.client.GetUserRoles(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString())
+		currentRoles, err := getOrganizationUserRoles(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error Reading Current Roles",
@@ -259,7 +262,7 @@ func (r *OrganizationUserResource) Update(ctx context.Context, req resource.Upda
 				}
 			}
 			if !found {
-				err := r.client.RemoveUserRole(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString(), roleID)
+				err := removeOrganizationUserRole(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString(), roleID)
 				if err != nil {
 					resp.Diagnostics.AddError(
 						"Error Removing Role",
@@ -280,7 +283,7 @@ func (r *OrganizationUserResource) Update(ctx context.Context, req resource.Upda
 				}
 			}
 			if !found {
-				err := r.client.AddUserRole(ctx, state.OrganizationCode.ValueString(), state.UserID.ValueString(), roleID)
+				err := addOrganizationUserRole(ctx, r.client, state.OrganizationCode.ValueString(), state.UserID.ValueString(), roleID)
 				if err != nil {
 					resp.Diagnostics.AddError(
 						"Error Adding Role",
@@ -317,19 +320,20 @@ func (r *OrganizationUserResource) Delete(ctx context.Context, req resource.Dele
 	}
 }
 
+func (r *OrganizationUserResource) addUserToOrganization(ctx context.Context, organizationCode, userID string) error {
+	payload := map[string]any{
+		"users": []map[string]string{{"id": userID}},
+	}
+	return r.client.doJSON(ctx, http.MethodPost, "/api/v1/organizations/"+url.PathEscape(organizationCode)+"/users", payload, nil)
+}
+
 func (r *OrganizationUserResource) removeUserFromOrganization(ctx context.Context, organizationCode, userID string) error {
-	endpoint := fmt.Sprintf("/api/v1/organizations/%s/users/%s", organizationCode, userID)
-	request, err := r.client.NewRequest(ctx, "DELETE", endpoint, nil, nil)
-	if err != nil {
-		return err
-	}
-
-	var response struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-
-	return r.client.DoRequest(request, &response)
+	res, err := r.client.RemoveOrganizationUser(ctx, management_api.RemoveOrganizationUserParams{
+		OrgCode: organizationCode,
+		UserID:  userID,
+	})
+	_, err = expectResponse[management_api.SuccessResponse]("remove organization user", res, err)
+	return err
 }
 
 func (r *OrganizationUserResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
