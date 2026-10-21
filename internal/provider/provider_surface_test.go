@@ -58,6 +58,7 @@ func TestKindeProviderDataSourcesSurface(t *testing.T) {
 		"kinde_api",
 		"kinde_application",
 		"kinde_connections",
+		"kinde_environment",
 	}
 
 	if !reflect.DeepEqual(got, want) {

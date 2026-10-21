@@ -10,7 +10,7 @@ Manage your Kinde business as code — applications, APIs, connections, organiza
 
 ## Development
 
-Requires Terraform 1.0+ and Go 1.23+
+Requires Terraform 1.0+ and Go 1.24+
 
 ## Getting started
 
@@ -38,6 +38,7 @@ Management API scopes are resource-specific. Grant only the scopes for the resou
 | `kinde_api` | `read:apis` |
 | `kinde_application` | `read:applications` |
 | `kinde_connections` | `read:connections` |
+| `kinde_environment` | `read:environments` |
 
 Setting the `roles` attribute on `kinde_organization_user` also requires the `organization_user_roles` scopes listed above for `kinde_user_role`.
 
@@ -116,6 +117,7 @@ provider "kinde" {}
 | `kinde_api` | Look up an existing API |
 | `kinde_application` | Look up an existing application |
 | `kinde_connections` | List connections in your business |
+| `kinde_environment` | Look up the environment the provider is authenticated against |
 
 ### Key Features
 
