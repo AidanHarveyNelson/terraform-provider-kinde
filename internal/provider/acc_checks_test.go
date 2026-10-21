@@ -298,3 +298,45 @@ func testAccCheckKindeUserRole(address string) resource.TestCheckFunc {
 func testAccCheckKindeUserRolesDestroyed(state *terraform.State) error {
 	return testAccCheckKindeDestroyed("kinde_user_role", testAccUserHasRole)(state)
 }
+
+func testAccCheckKindeRole(address, name, key, description string, permissionAddresses ...string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		want := []string{}
+		for _, permissionAddress := range permissionAddresses {
+			id, err := stateAttr(state, permissionAddress, "id")
+			if err != nil {
+				return err
+			}
+			want = append(want, id)
+		}
+		return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+			role, err := (&RoleResource{client: client}).getRole(ctx, rs.Primary.ID)
+			if err != nil {
+				return err
+			}
+			if err := expectEqual("role name", role.Name, name); err != nil {
+				return err
+			}
+			if err := expectEqual("role key", role.Key, key); err != nil {
+				return err
+			}
+			if err := expectEqual("role description", role.Description, description); err != nil {
+				return err
+			}
+			got := append([]string{}, role.Permissions...)
+			sort.Strings(got)
+			sort.Strings(want)
+			return expectEqual("role permissions", fmt.Sprint(got), fmt.Sprint(want))
+		})(state)
+	}
+}
+
+func testAccCheckKindeRolesDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_role", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := (&RoleResource{client: client}).getRole(ctx, rs.Primary.ID)
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})(state)
+}
