@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -199,4 +200,101 @@ func testAccCheckKindeApplicationConnection(address string) resource.TestCheckFu
 
 func testAccCheckKindeApplicationConnectionsDestroyed(state *terraform.State) error {
 	return testAccCheckKindeDestroyed("kinde_application_connection", testAccApplicationHasConnection)(state)
+}
+
+func testAccCheckKindeOrganization(address, name string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		organization, err := (&OrganizationResource{client: client}).getOrganization(ctx, rs.Primary.Attributes["code"])
+		if err != nil {
+			return err
+		}
+		return expectEqual("organization name", organization.Name, name)
+	})
+}
+
+func testAccCheckKindeOrganizationsDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_organization", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, err := (&OrganizationResource{client: client}).getOrganization(ctx, rs.Primary.Attributes["code"])
+		if isNotFoundError(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})(state)
+}
+
+func testAccOrganizationUserRoleIDs(ctx context.Context, client *ManagementAPI, orgCode, userID string) ([]string, bool, error) {
+	roles, err := getOrganizationUserRoles(ctx, client, orgCode, userID)
+	if err != nil {
+		if isNotFoundError(err) || isUserNotInOrganizationError(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	ids := make([]string, 0, len(roles))
+	for _, role := range roles {
+		ids = append(ids, role.ID)
+	}
+	return ids, true, nil
+}
+
+func testAccCheckKindeOrganizationUserRoles(address string, roleAddresses ...string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		var want []string
+		for _, roleAddress := range roleAddresses {
+			id, err := stateAttr(state, roleAddress, "id")
+			if err != nil {
+				return err
+			}
+			want = append(want, id)
+		}
+		return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+			got, member, err := testAccOrganizationUserRoleIDs(ctx, client, rs.Primary.Attributes["organization_code"], rs.Primary.Attributes["user_id"])
+			if err != nil {
+				return err
+			}
+			if !member {
+				return fmt.Errorf("user %s is not a member of organization %s in Kinde", rs.Primary.Attributes["user_id"], rs.Primary.Attributes["organization_code"])
+			}
+			sort.Strings(got)
+			sort.Strings(want)
+			return expectEqual("organization user roles", fmt.Sprint(got), fmt.Sprint(want))
+		})(state)
+	}
+}
+
+func testAccCheckKindeOrganizationUsersDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_organization_user", func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+		_, member, err := testAccOrganizationUserRoleIDs(ctx, client, rs.Primary.Attributes["organization_code"], rs.Primary.Attributes["user_id"])
+		return member, err
+	})(state)
+}
+
+func testAccUserHasRole(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) (bool, error) {
+	ids, _, err := testAccOrganizationUserRoleIDs(ctx, client, rs.Primary.Attributes["organization_code"], rs.Primary.Attributes["user_id"])
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		if id == rs.Primary.Attributes["role_id"] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func testAccCheckKindeUserRole(address string) resource.TestCheckFunc {
+	return testAccCheckKinde(address, func(ctx context.Context, client *ManagementAPI, rs *terraform.ResourceState) error {
+		assigned, err := testAccUserHasRole(ctx, client, rs)
+		if err != nil {
+			return err
+		}
+		if !assigned {
+			return fmt.Errorf("role %s is not assigned to user %s in Kinde", rs.Primary.Attributes["role_id"], rs.Primary.Attributes["user_id"])
+		}
+		return nil
+	})
+}
+
+func testAccCheckKindeUserRolesDestroyed(state *terraform.State) error {
+	return testAccCheckKindeDestroyed("kinde_user_role", testAccUserHasRole)(state)
 }

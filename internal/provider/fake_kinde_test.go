@@ -116,6 +116,8 @@ type fakeKinde struct {
 	connections    map[string]*fakeConnection
 	organizations  map[string]*fakeOrganization
 	orgMembers     map[string]map[string][]string
+	removedMembers map[string]bool
+	removedRoles   map[string]bool
 	roles          map[string]*fakeRole
 	users          map[string]*fakeUser
 	identities     map[string]*fakeIdentity
@@ -135,6 +137,8 @@ func newFakeKinde(t *testing.T) *fakeKinde {
 		connections:    map[string]*fakeConnection{},
 		organizations:  map[string]*fakeOrganization{},
 		orgMembers:     map[string]map[string][]string{},
+		removedMembers: map[string]bool{},
+		removedRoles:   map[string]bool{},
 		roles:          map[string]*fakeRole{},
 		users:          map[string]*fakeUser{},
 		identities:     map[string]*fakeIdentity{},
@@ -508,6 +512,7 @@ func (f *fakeKinde) registerRoutes() {
 			return
 		}
 		delete(f.orgMembers[p[0]], p[1])
+		f.removedMembers[p[0]+":"+p[1]] = true
 		fakeOK(w, http.StatusOK)
 	})
 	f.route(http.MethodGet, "/api/v1/organizations/([^/]+)/users/([^/]+)/roles", func(w http.ResponseWriter, r *http.Request, p []string) {
@@ -558,6 +563,7 @@ func (f *fakeKinde) registerRoutes() {
 			}
 		}
 		f.orgMembers[p[0]][p[1]] = kept
+		f.removedRoles[p[0]+":"+p[1]+":"+p[2]] = true
 		fakeOK(w, http.StatusOK)
 	})
 
