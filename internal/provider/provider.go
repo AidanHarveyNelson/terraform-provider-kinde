@@ -184,6 +184,7 @@ func (p *KindeProvider) Resources(ctx context.Context) []func() resource.Resourc
 		NewUserResource,
 		NewPermissionResource,
 		NewUserRoleResource,
+		NewEnvironmentFeatureFlagsResource,
 	}
 }
 

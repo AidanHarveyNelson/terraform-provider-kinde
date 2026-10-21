@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `kinde_connection`, `kinde_organization`, `kinde_organization_user`,
     `kinde_permission`, `kinde_role`, `kinde_user`, `kinde_user_role`.
   - Data sources: `kinde_api`, `kinde_application`, `kinde_connections`.
-- `kinde_environment` data source, built on the official
+- `kinde_environment` data source and `kinde_environment_feature_flags`
+  resource, built on the official
   [`kinde-oss/kinde-go`](https://github.com/kinde-oss/kinde-go) SDK.
 
 ### Changed
