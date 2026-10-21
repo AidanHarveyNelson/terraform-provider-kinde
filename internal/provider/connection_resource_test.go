@@ -9,7 +9,6 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-	"github.com/nxt-fwd/kinde-go/api/connections"
 )
 
 func TestAccConnectionResource_OAuth2(t *testing.T) {
@@ -25,7 +24,7 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Test OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_id", "test-client-id"),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_secret", "test-client-secret"),
 				),
@@ -48,7 +47,7 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Test OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckNoResourceAttr("kinde_connection.oauth2", "options.client_id"),
 					resource.TestCheckNoResourceAttr("kinde_connection.oauth2", "options.client_secret"),
 				),
@@ -59,7 +58,7 @@ func TestAccConnectionResource_OAuth2(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "name", testID),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "display_name", "Updated OAuth2 Connection"),
-					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", string(connections.StrategyOAuth2Google)),
+					resource.TestCheckResourceAttr("kinde_connection.oauth2", "strategy", strategyOAuth2Google),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_id", "updated-client-id"),
 					resource.TestCheckResourceAttr("kinde_connection.oauth2", "options.client_secret", "updated-client-secret"),
 				),
