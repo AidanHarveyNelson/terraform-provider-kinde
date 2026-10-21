@@ -25,6 +25,8 @@ Acceptance tests read credentials from a `.env` file in the repository root (cop
 
 The feature flag acceptance tests check values in Kinde directly, not just in Terraform state, including drift made outside Terraform and that destroy leaves unmanaged overrides alone.
 
+CI runs the unit tests only. Run the acceptance tests locally before opening a pull request.
+
 ## Getting started
 
 ### Prerequisites
